@@ -18,7 +18,7 @@ class UserTemplateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     system_prompt: str = Field("", max_length=10000)
     temperature: float = Field(1.0, ge=0.0, le=2.0)
-    max_tokens: int = Field(0, ge=0, le=65536)
+    max_tokens: int = Field(0, ge=0, le=131072)
 
 
 def setup_preset_routes(preset_manager) -> APIRouter:
@@ -39,6 +39,9 @@ def setup_preset_routes(preset_manager) -> APIRouter:
                 preset_update.enabled,
                 preset_update.inject_prefix,
                 preset_update.inject_suffix,
+                top_p=preset_update.top_p,
+                top_k=preset_update.top_k,
+                stream=preset_update.stream,
             )
             if success:
                 return {"success": True, "message": "Custom preset updated"}

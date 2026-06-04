@@ -72,8 +72,24 @@ class PresetUpdateRequest(BaseModel):
     max_tokens: int = Field(
         0,
         ge=0,
-        le=8192,
+        le=131072,
         description="Maximum number of tokens to generate (0 = no limit)"
+    )
+    top_p: Optional[float] = Field(
+        None,
+        ge=0.0,
+        le=1.0,
+        description="Nucleus sampling probability (None = unset)"
+    )
+    top_k: Optional[int] = Field(
+        None,
+        ge=0,
+        le=500,
+        description="Top-k sampling (None = unset)"
+    )
+    stream: bool = Field(
+        True,
+        description="Whether responses stream token-by-token"
     )
     system_prompt: str = Field(
         "",

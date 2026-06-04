@@ -4,9 +4,88 @@
  * Preset management
  */
 
+import { getModelMaxOutput } from './chatRenderer.js';
+
 let API_BASE = '';
 let selectedPreset = null;
 let presets = {};
+
+/** Current model id — session module first, then the picker label. */
+function _currentModelId() {
+  try {
+    if (window.sessionModule && window.sessionModule.getCurrentModel) {
+      const m = window.sessionModule.getCurrentModel();
+      if (m) return m;
+    }
+  } catch (_e) { /* ignore */ }
+  const label = document.getElementById('model-picker-label');
+  return label ? label.textContent.trim() : '';
+}
+
+// Configure the max-tokens slider range for the current model. Claude models get
+// a real cap (their max output) in 2048 steps; other providers keep the legacy
+// 256..8448 "No limit" slider. Returns the model's max output, or null.
+function _configureMaxTokensSlider() {
+  const slider = document.getElementById('custom-max-tokens');
+  const maxOut = getModelMaxOutput(_currentModelId());
+  if (slider) {
+    if (maxOut) { slider.min = 2048; slider.step = 2048; slider.max = maxOut; }
+    else { slider.min = 256; slider.step = 256; slider.max = 8448; }
+  }
+  return maxOut;
+}
+
+/** Label for the tokens-value display. Legacy slider reads >8192 as "No limit". */
+function _tokensLabel(v) {
+  v = parseInt(v);
+  if (getModelMaxOutput(_currentModelId())) return v.toLocaleString();
+  return v > 8192 ? 'No limit' : v.toLocaleString();
+}
+
+/** Set the max-tokens slider value + label for the current model. raw 0/unset =
+ *  full model cap (Claude) or the 8448 "No limit" sentinel (legacy). */
+function _applyTokensValue(raw) {
+  const slider = document.getElementById('custom-max-tokens');
+  const disp = document.getElementById('tokens-value');
+  const maxOut = _configureMaxTokensSlider();
+  let v;
+  if (maxOut) v = (!raw || raw <= 0) ? maxOut : Math.min(raw, maxOut);
+  else v = (!raw || raw <= 0) ? 8448 : raw;
+  if (slider) slider.value = v;
+  if (disp) disp.textContent = _tokensLabel(v);
+}
+
+/** max_tokens to persist from the raw slider value (legacy >8192 = 0 "no limit"). */
+function _savedMaxTokens(raw) {
+  if (getModelMaxOutput(_currentModelId())) return raw;
+  return raw > 8192 ? 0 : raw;
+}
+
+/** top_p to send: slider at 1.0 (or NaN) means "unset" → null. */
+function _readTopP() {
+  const s = document.getElementById('custom-top-p');
+  if (!s) return null;
+  const v = parseFloat(s.value);
+  return (isNaN(v) || v >= 1) ? null : v;
+}
+
+/** top_k to send: 0 means "unset" → null. */
+function _readTopK() {
+  const s = document.getElementById('custom-top-k');
+  if (!s) return null;
+  const v = parseInt(s.value);
+  return (isNaN(v) || v <= 0) ? null : v;
+}
+
+/** Update the top-p / top-k value labels from their sliders. */
+function _syncTopLabels() {
+  const tp = document.getElementById('custom-top-p');
+  const tpv = document.getElementById('top-p-value');
+  if (tp && tpv) tpv.textContent = (parseFloat(tp.value) >= 1) ? 'Off' : parseFloat(tp.value).toFixed(2);
+  const tk = document.getElementById('custom-top-k');
+  const tkv = document.getElementById('top-k-value');
+  if (tk && tkv) tkv.textContent = (parseInt(tk.value) <= 0) ? 'Off' : parseInt(tk.value).toLocaleString();
+}
 
 export function loadStoredArray(key) {
   try {
@@ -174,10 +253,13 @@ function initEnabledToggle() {
   }
   if (tokensSlider && tokensValue) {
     tokensSlider.addEventListener('input', () => {
-      const v = parseInt(tokensSlider.value);
-      tokensValue.textContent = v > 8192 ? 'No limit' : v.toLocaleString();
+      tokensValue.textContent = _tokensLabel(tokensSlider.value);
     });
   }
+  const topP = document.getElementById('custom-top-p');
+  const topK = document.getElementById('custom-top-k');
+  if (topP) topP.addEventListener('input', _syncTopLabels);
+  if (topK) topK.addEventListener('input', _syncTopLabels);
 }
 
 /**
@@ -214,7 +296,11 @@ function initNameDropdown() {
       const nameRow = document.getElementById('char-name-row');
       if (nameRow) nameRow.style.display = '';
       if (tempInput) { tempInput.value = 1.0; if (tempValue) tempValue.textContent = '1.0'; tempInput.dispatchEvent(new Event('input')); }
-      if (tokensInput) { tokensInput.value = 8448; if (tokensValue) tokensValue.textContent = 'No limit'; tokensInput.dispatchEvent(new Event('input')); }
+      if (tokensInput) { _applyTokensValue(0); }
+      const tpReset = document.getElementById('custom-top-p'); if (tpReset) tpReset.value = 1;
+      const tkReset = document.getElementById('custom-top-k'); if (tkReset) tkReset.value = 0;
+      const stReset = document.getElementById('custom-stream'); if (stReset) stReset.checked = true;
+      _syncTopLabels();
       if (delBtn) delBtn.style.display = 'none';
       return;
     }
@@ -301,10 +387,7 @@ function _tryLoadTemplate(name) {
     tempInput.dispatchEvent(new Event('input'));
   }
   if (tokensInput) {
-    const v = tmpl.max_tokens || 0;
-    tokensInput.value = v === 0 ? 8448 : v;
-    if (tokensValue) tokensValue.textContent = (v === 0 || v > 8192) ? 'No limit' : v.toLocaleString();
-    tokensInput.dispatchEvent(new Event('input'));
+    _applyTokensValue(tmpl.max_tokens || 0);
   }
   const delBtn = document.getElementById('char-delete-template-btn');
   if (delBtn) delBtn.style.display = '';
@@ -592,11 +675,16 @@ export function openCustomPresetModal() {
     if (tv) tv.textContent = parseFloat(savedConfig.temperature).toFixed(1);
   }
   if (tokensInput) {
-    const saved = savedConfig.max_tokens || 0;
-    tokensInput.value = saved === 0 ? 8448 : saved;
-    const tkv = document.getElementById('tokens-value');
-    if (tkv) tkv.textContent = (saved === 0 || saved > 8192) ? 'No limit' : parseInt(saved).toLocaleString();
+    _applyTokensValue(savedConfig.max_tokens || 0);
   }
+  // Load top_p / top_k / streaming from the saved config.
+  const topPInput = document.getElementById('custom-top-p');
+  const topKInput = document.getElementById('custom-top-k');
+  const streamInput = document.getElementById('custom-stream');
+  if (topPInput) topPInput.value = (savedConfig.top_p == null) ? 1 : savedConfig.top_p;
+  if (topKInput) topKInput.value = (savedConfig.top_k == null) ? 0 : savedConfig.top_k;
+  if (streamInput) streamInput.checked = savedConfig.stream !== false;
+  _syncTopLabels();
   if (promptInput) promptInput.value = savedConfig.system_prompt || '';
 
   // Load inject fields
@@ -611,6 +699,9 @@ export function openCustomPresetModal() {
     prompt: promptInput ? promptInput.value : '',
     temp: tempInput ? tempInput.value : '1',
     tokens: tokensInput ? tokensInput.value : '8448',
+    topP: topPInput ? topPInput.value : '1',
+    topK: topKInput ? topKInput.value : '0',
+    stream: streamInput ? streamInput.checked : true,
   };
   function _updateStartBtn() {
     const btn = document.getElementById('save-custom-preset');
@@ -619,7 +710,10 @@ export function openCustomPresetModal() {
     const changed = (nameInput && nameInput.value !== _snapshot.name)
       || (promptInput && promptInput.value !== _snapshot.prompt)
       || (tempInput && tempInput.value !== _snapshot.temp)
-      || (tokensInput && tokensInput.value !== _snapshot.tokens);
+      || (tokensInput && tokensInput.value !== _snapshot.tokens)
+      || (topPInput && topPInput.value !== _snapshot.topP)
+      || (topKInput && topKInput.value !== _snapshot.topK)
+      || (streamInput && streamInput.checked !== _snapshot.stream);
     // The footer button starts whichever of the three things the active tab
     // represents — a character chat, a group, or a plain tuned chat. Label
     // it so the action is obvious instead of a generic "Start".
@@ -650,8 +744,8 @@ export function openCustomPresetModal() {
     // Reset only makes sense on the character tab (it resets the persona).
     if (resetBtn) resetBtn.style.display = (changed && activeTab === 'character') ? '' : 'none';
   }
-  [nameInput, promptInput, tempInput, tokensInput].forEach(el => {
-    if (el) el.addEventListener('input', _updateStartBtn);
+  [nameInput, promptInput, tempInput, tokensInput, topPInput, topKInput, streamInput].forEach(el => {
+    if (el) el.addEventListener(el === streamInput ? 'change' : 'input', _updateStartBtn);
   });
   // Re-label the Start button when the user switches tabs. Rebind the fresh
   // closure each time the modal opens (removing any stale one) so the label
@@ -689,6 +783,9 @@ export function openCustomPresetModal() {
     _snapshot.prompt = promptInput ? promptInput.value : '';
     _snapshot.temp = tempInput ? tempInput.value : '1';
     _snapshot.tokens = tokensInput ? tokensInput.value : '8448';
+    _snapshot.topP = topPInput ? topPInput.value : '1';
+    _snapshot.topK = topKInput ? topKInput.value : '0';
+    _snapshot.stream = streamInput ? streamInput.checked : true;
     _updateStartBtn();
   }, 50));
   _updateStartBtn();
@@ -772,8 +869,12 @@ export async function saveCustomPreset(showToast, showError) {
   const name = _isInjectStart ? '' : (nameInput ? nameInput.value.trim() : '');
   const temperature = parseFloat(tempInput.value);
   const rawTokens = parseInt(tokensInput.value);
-  const max_tokens = rawTokens > 8192 ? 0 : rawTokens;
+  const max_tokens = _savedMaxTokens(rawTokens);
   const system_prompt = _isInjectStart ? '' : promptInput.value;
+  const top_p = _readTopP();
+  const top_k = _readTopK();
+  const _streamInput = document.getElementById('custom-stream');
+  const stream = _streamInput ? _streamInput.checked : true;
 
   const enabled = true; // always enabled when saving — deactivation happens via X/Reset
 
@@ -785,6 +886,9 @@ export async function saveCustomPreset(showToast, showError) {
     enabled: enabled,
     temperature: Math.max(0, Math.min(2, temperature)),
     max_tokens: max_tokens,
+    top_p: top_p,
+    top_k: top_k,
+    stream: stream,
     system_prompt: system_prompt,
     inject_prefix: _prefixInput ? _prefixInput.value : '',
     inject_suffix: _suffixInput ? _suffixInput.value : '',
@@ -807,7 +911,8 @@ export async function saveCustomPreset(showToast, showError) {
       // user has dialed in non-default tuning (temperature / max tokens) — the
       // "Inject" tab's plain-chat case. Without the tuning check, "just set
       // temp + max tokens" would silently do nothing.
-      const _hasTuning = (config.temperature !== 1.0) || (config.max_tokens !== 0);
+      const _hasTuning = (config.temperature !== 1.0) || (config.max_tokens !== 0)
+        || (config.top_p != null) || (config.top_k != null) || (config.stream === false);
       const _hasInject = !!(config.inject_prefix || config.inject_suffix);
       const _hasContent = !!(system_prompt || name || _hasTuning || _hasInject);
       if (enabled && _hasContent) {

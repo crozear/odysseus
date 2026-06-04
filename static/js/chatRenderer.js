@@ -400,19 +400,18 @@ const TOOL_NARRATION_RE = /(?:The (?:result|output) shows?:?\s*)?-?\s*(?:stdout|
 // Model pricing table — per million tokens
 // Model info: pricing (per 1M tokens) + context window length
 const MODEL_INFO = {
-  // --- Anthropic ---
-  'claude-sonnet-4-5':    { input: 3.00,  output: 15.00, ctx: 200000 },
-  'claude-sonnet-4-6':    { input: 3.00,  output: 15.00, ctx: 200000 },
-  'claude-sonnet-4':      { input: 3.00,  output: 15.00, ctx: 200000 },
-  'claude-opus-4':        { input: 15.00, output: 75.00, ctx: 200000 },
-  'claude-opus-4-6':      { input: 15.00, output: 75.00, ctx: 200000 },
-  'claude-haiku-4':       { input: 0.80,  output: 4.00,  ctx: 200000 },
-  'claude-haiku-3-5':     { input: 0.80,  output: 4.00,  ctx: 200000 },
-  'claude-3-5-sonnet':    { input: 3.00,  output: 15.00, ctx: 200000 },
-  'claude-3-5-haiku':     { input: 0.80,  output: 4.00,  ctx: 200000 },
-  'claude-3-opus':        { input: 15.00, output: 75.00, ctx: 200000 },
-  'claude-3-sonnet':      { input: 3.00,  output: 15.00, ctx: 200000 },
-  'claude-3-haiku':       { input: 0.25,  output: 1.25,  ctx: 200000 },
+  // --- Anthropic --- (most-specific key first; getModelInfo returns the first
+  // substring match, so 'claude-opus-4' must stay below 'claude-opus-4-8' etc.)
+  'claude-opus-4-8':      { input: 5.00,  output: 25.00, ctx: 1000000, maxOut: 128000 },
+  'claude-opus-4-7':      { input: 5.00,  output: 25.00, ctx: 1000000, maxOut: 128000 },
+  'claude-opus-4-6':      { input: 5.00,  output: 25.00, ctx: 1000000, maxOut: 128000 },
+  'claude-opus-4-5':      { input: 5.00,  output: 25.00, ctx: 200000,  maxOut: 64000  },
+  'claude-opus-4-1':      { input: 15.00, output: 75.00, ctx: 200000,  maxOut: 32000  },
+  'claude-opus-4':        { input: 15.00, output: 75.00, ctx: 200000,  maxOut: 32000  },
+  'claude-sonnet-4-6':    { input: 3.00,  output: 15.00, ctx: 1000000, maxOut: 64000  },
+  'claude-sonnet-4-5':    { input: 3.00,  output: 15.00, ctx: 200000,  maxOut: 64000  },
+  'claude-sonnet-4':      { input: 3.00,  output: 15.00, ctx: 200000,  maxOut: 64000  },
+  'claude-haiku-4-5':     { input: 1.00,  output: 5.00,  ctx: 200000,  maxOut: 64000  },
   // --- OpenAI ---
   'gpt-5':                { input: 2.00,  output: 8.00,  ctx: 400000 },
   'gpt-4.1':              { input: 2.00,  output: 8.00,  ctx: 1047576 },
@@ -537,6 +536,46 @@ export function getModelInfo(modelName) {
     if (name.includes(key)) return { key, ...info };
   }
   return null;
+}
+
+// Anthropic per-model thinking/sampling capabilities — mirrors the backend
+// _ANTHROPIC_FEATURES matrix in src/llm_core.py. Used by the thinking popup and
+// the Inject tab to gate which controls/effort levels are shown. Matched by
+// LONGEST prefix against the model id.
+//   thinking : 'adaptive' (adaptive-only), 'extended' (extended-only),
+//              or 'both' (adaptive toggle available, else extended)
+//   temp/topP/topK : whether the sampling param is accepted at all
+const ANTHROPIC_CAPS = {
+  'claude-opus-4-8':   { thinking: 'adaptive', effort: ['auto','low','medium','high','xhigh','max'], temp: false, topP: false, topK: false, maxOut: 128000 },
+  'claude-opus-4-7':   { thinking: 'adaptive', effort: ['auto','low','medium','high','xhigh','max'], temp: false, topP: false, topK: false, maxOut: 128000 },
+  'claude-opus-4-6':   { thinking: 'both',     effort: ['auto','low','medium','high','max'],          temp: true,  topP: true,  topK: true,  maxOut: 128000 },
+  'claude-opus-4-5':   { thinking: 'extended', effort: ['auto','low','medium','high'], temp: true, topP: true, topK: true, maxOut: 64000 },
+  'claude-opus-4-1':   { thinking: 'extended', effort: ['auto','low','medium','high'], temp: true, topP: true, topK: true, maxOut: 32000 },
+  'claude-opus-4':     { thinking: 'extended', effort: ['auto','low','medium','high'], temp: true, topP: true, topK: true, maxOut: 32000 },
+  'claude-sonnet-4-6': { thinking: 'both',     effort: ['auto','low','medium','high','max'], temp: true, topP: true, topK: true, maxOut: 64000 },
+  'claude-sonnet-4-5': { thinking: 'extended', effort: ['auto','low','medium','high'], temp: true, topP: true, topK: true, maxOut: 64000 },
+  'claude-sonnet-4':   { thinking: 'extended', effort: ['auto','low','medium','high'], temp: true, topP: true, topK: true, maxOut: 64000 },
+  'claude-haiku-4-5':  { thinking: 'extended', effort: ['auto','low','medium','high'], temp: true, topP: true, topK: true, maxOut: 64000 },
+};
+
+/** Longest-prefix match of a model id against the Anthropic capability matrix.
+ *  Returns null for non-Anthropic models (UI then hides the thinking controls). */
+export function getThinkingCaps(modelName) {
+  if (!modelName) return null;
+  const m = String(modelName).toLowerCase().split('/').pop();
+  let bestKey = null;
+  for (const key of Object.keys(ANTHROPIC_CAPS)) {
+    if ((m === key || m.startsWith(key)) && (bestKey === null || key.length > bestKey.length)) bestKey = key;
+  }
+  return bestKey ? ANTHROPIC_CAPS[bestKey] : null;
+}
+
+/** Max output tokens for a model (Anthropic caps first, then MODEL_INFO.maxOut). */
+export function getModelMaxOutput(modelName) {
+  const caps = getThinkingCaps(modelName);
+  if (caps && caps.maxOut) return caps.maxOut;
+  const info = getModelInfo(modelName);
+  return info && info.maxOut ? info.maxOut : null;
 }
 
 function _fmtCtx(n) {

@@ -150,10 +150,55 @@ def _set_cached_response(cache_key: str, response: str) -> None:
 # ── Anthropic native API adapter ──
 
 ANTHROPIC_MODELS = [
+    "claude-opus-4-8",
+    "claude-opus-4-7",
+    "claude-opus-4-6",
+    "claude-opus-4-5-20251101", "claude-opus-4-5",
+    "claude-opus-4-1-20250805", "claude-opus-4-1",
     "claude-opus-4-20250514", "claude-opus-4",
-    "claude-sonnet-4-20250514", "claude-sonnet-4", "claude-sonnet-4-5-20250929", "claude-sonnet-4-5",
-    "claude-haiku-4-20250514", "claude-haiku-4", "claude-haiku-3-5-20241022", "claude-haiku-3-5",
+    "claude-sonnet-4-6",
+    "claude-sonnet-4-5-20250929", "claude-sonnet-4-5",
+    "claude-sonnet-4-20250514", "claude-sonnet-4",
+    "claude-haiku-4-5-20251001", "claude-haiku-4-5",
 ]
+
+# ── Anthropic per-model feature matrix ──
+# Keys are matched as a LONGEST-prefix against the model id (so "claude-opus-4"
+# never shadows "claude-opus-4-8"). Each entry:
+#   thinking : "adaptive" (adaptive-only), "extended" (extended-only),
+#              or "both" (adaptive toggle available, else extended)
+#   effort   : effort levels the model accepts in the thinking popup
+#   temp/top_p/top_k : whether the sampling param is accepted at all
+#   max_out  : max output tokens
+_ANTHROPIC_DEFAULT_EFFORTS = ("auto", "low", "medium", "high")
+_ANTHROPIC_FEATURES = {
+    "claude-opus-4-8":   {"thinking": "adaptive", "effort": ("auto", "low", "medium", "high", "xhigh", "max"), "temp": False, "top_p": False, "top_k": False, "max_out": 128000},
+    "claude-opus-4-7":   {"thinking": "adaptive", "effort": ("auto", "low", "medium", "high", "xhigh", "max"), "temp": False, "top_p": False, "top_k": False, "max_out": 128000},
+    "claude-opus-4-6":   {"thinking": "both",     "effort": ("auto", "low", "medium", "high", "max"),          "temp": True,  "top_p": True,  "top_k": True,  "max_out": 128000},
+    "claude-opus-4-5":   {"thinking": "extended", "effort": _ANTHROPIC_DEFAULT_EFFORTS, "temp": True, "top_p": True, "top_k": True, "max_out": 64000},
+    "claude-opus-4-1":   {"thinking": "extended", "effort": _ANTHROPIC_DEFAULT_EFFORTS, "temp": True, "top_p": True, "top_k": True, "max_out": 32000},
+    "claude-opus-4":     {"thinking": "extended", "effort": _ANTHROPIC_DEFAULT_EFFORTS, "temp": True, "top_p": True, "top_k": True, "max_out": 32000},
+    "claude-sonnet-4-6": {"thinking": "both",     "effort": ("auto", "low", "medium", "high", "max"), "temp": True, "top_p": True, "top_k": True, "max_out": 64000},
+    "claude-sonnet-4-5": {"thinking": "extended", "effort": _ANTHROPIC_DEFAULT_EFFORTS, "temp": True, "top_p": True, "top_k": True, "max_out": 64000},
+    "claude-sonnet-4":   {"thinking": "extended", "effort": _ANTHROPIC_DEFAULT_EFFORTS, "temp": True, "top_p": True, "top_k": True, "max_out": 64000},
+    "claude-haiku-4-5":  {"thinking": "extended", "effort": _ANTHROPIC_DEFAULT_EFFORTS, "temp": True, "top_p": True, "top_k": True, "max_out": 64000},
+}
+
+# Extended-thinking budget = this fraction of max_tokens (floored at 1024).
+_THINKING_EFFORT_BUDGET = {"low": 0.10, "medium": 0.25, "high": 0.50, "xhigh": 0.75, "max": 0.90}
+_THINKING_MIN_BUDGET = 1024
+
+
+def _anthropic_model_features(model: str) -> Optional[dict]:
+    """Longest-prefix match of a model id against the Anthropic feature matrix."""
+    if not model:
+        return None
+    m = model.lower().split("/")[-1]
+    best_key = None
+    for key in _ANTHROPIC_FEATURES:
+        if (m == key or m.startswith(key)) and (best_key is None or len(key) > len(best_key)):
+            best_key = key
+    return _ANTHROPIC_FEATURES[best_key] if best_key else None
 
 
 def _is_ollama_native_url(url: str) -> bool:
@@ -472,7 +517,9 @@ def _convert_openai_content_to_anthropic(content):
     return converted
 
 
-def _build_anthropic_payload(model, messages, temperature, max_tokens, stream=False, tools=None):
+def _build_anthropic_payload(model, messages, temperature, max_tokens, stream=False, tools=None,
+                             top_p=None, top_k=None, thinking_enabled=False,
+                             thinking_adaptive=False, thinking_effort="auto"):
     """Convert OpenAI-style messages to Anthropic format."""
     system_parts = []
     chat_messages = []
@@ -512,18 +559,68 @@ def _build_anthropic_payload(model, messages, temperature, max_tokens, stream=Fa
             # Convert multimodal content (image_url → image) for Anthropic
             content = _convert_openai_content_to_anthropic(m["content"])
             chat_messages.append({"role": m["role"], "content": content})
-    # Anthropic only accepts temperature in [0.0, 1.0] and 400s on anything above
-    # 1.0. Clamp here (in the Anthropic builder only) so presets/sliders that use
-    # the wider OpenAI 0.0-2.0 range — e.g. the shipped "Nietzsche" preset at 1.2
-    # — don't hard-break every Claude request. OpenAI's own path is left untouched.
-    if temperature is not None:
-        temperature = max(0.0, min(temperature, 1.0))
+    resolved_max = max_tokens if max_tokens and max_tokens > 0 else 4096
     payload = {
         "model": model,
         "messages": chat_messages,
-        "max_tokens": max_tokens if max_tokens and max_tokens > 0 else 4096,
-        "temperature": temperature,
+        "max_tokens": resolved_max,
     }
+
+    features = _anthropic_model_features(model)
+
+    # ── Thinking (extended vs adaptive) ──
+    # Resolve the effective mode from the model's capabilities: adaptive-only
+    # models force adaptive, extended-only force extended, and "both" models
+    # honor the user's adaptive toggle. Adaptive carries effort in output_config;
+    # extended carries it as budget_tokens (a fraction of max_tokens).
+    thinking_obj = None
+    output_config = None
+    if thinking_enabled and features:
+        mode = features.get("thinking")
+        use_adaptive = True if mode == "adaptive" else (False if mode == "extended" else bool(thinking_adaptive))
+        eff = (thinking_effort or "auto").lower()
+        if use_adaptive:
+            thinking_obj = {"type": "adaptive"}
+            if eff != "auto":
+                output_config = {"effort": eff}
+        else:
+            thinking_obj = {"type": "enabled"}
+            frac = _THINKING_EFFORT_BUDGET.get(eff)
+            if frac is not None:
+                budget = max(_THINKING_MIN_BUDGET, int(resolved_max * frac))
+                # Anthropic requires budget_tokens < max_tokens.
+                if budget >= resolved_max:
+                    budget = max(_THINKING_MIN_BUDGET, resolved_max - 1024)
+                thinking_obj["budget_tokens"] = budget
+    if thinking_obj is not None:
+        payload["thinking"] = thinking_obj
+    if output_config is not None:
+        payload["output_config"] = output_config
+
+    # ── Sampling (temperature / top_p / top_k) ──
+    # Opus-4-7/4-8 accept NONE of these. Otherwise temperature and top_p are
+    # mutually exclusive (temperature wins). Thinking forces Anthropic to use
+    # temperature=1, so we omit temperature and restrict top_p to [0.95, 1.0].
+    allow_temp = features.get("temp", True) if features else True
+    allow_top_p = features.get("top_p", True) if features else True
+    allow_top_k = features.get("top_k", True) if features else True
+    thinking_on = thinking_obj is not None
+    if allow_top_k and top_k is not None:
+        try:
+            tk = int(top_k)
+            if tk > 0:
+                payload["top_k"] = tk
+        except (TypeError, ValueError):
+            pass
+    if thinking_on:
+        if allow_top_p and top_p is not None:
+            payload["top_p"] = max(0.95, min(float(top_p), 1.0))
+    else:
+        if allow_temp and temperature is not None:
+            payload["temperature"] = max(0.0, min(temperature, 1.0))
+        elif allow_top_p and top_p is not None:
+            payload["top_p"] = max(0.0, min(float(top_p), 1.0))
+
     if system_parts:
         system_text = "\n\n".join(system_parts)
         # Send `system` as a structured text block so we can attach a prompt-cache
@@ -793,8 +890,11 @@ def normalize_model_id(endpoint_url: str, requested: str, timeout: int = LLMConf
     return None
 
 def llm_call(url: str, model: str, messages: List[Dict], temperature: float = LLMConfig.DEFAULT_TEMPERATURE,
-             max_tokens: int = LLMConfig.DEFAULT_MAX_TOKENS, headers: Optional[Dict] = None, 
-             timeout: int = LLMConfig.DEFAULT_TIMEOUT, prompt_type: Optional[str] = None) -> str:
+             max_tokens: int = LLMConfig.DEFAULT_MAX_TOKENS, headers: Optional[Dict] = None,
+             timeout: int = LLMConfig.DEFAULT_TIMEOUT, prompt_type: Optional[str] = None,
+             top_p: Optional[float] = None, top_k: Optional[int] = None,
+             thinking_enabled: bool = False, thinking_adaptive: bool = False,
+             thinking_effort: str = "auto") -> str:
     """Synchronous LLM call with optional prompt type enhancement."""
     h = _provider_headers(_detect_provider(url))
     # Tolerate headers that arrive as a JSON string (some sessions stored them
@@ -833,7 +933,11 @@ def llm_call(url: str, model: str, messages: List[Dict], temperature: float = LL
     if provider == "anthropic":
         target_url = _normalize_anthropic_url(url)
         h = _build_anthropic_headers(headers)
-        payload = _build_anthropic_payload(model, messages_copy, temperature, max_tokens)
+        payload = _build_anthropic_payload(
+            model, messages_copy, temperature, max_tokens,
+            top_p=top_p, top_k=top_k, thinking_enabled=thinking_enabled,
+            thinking_adaptive=thinking_adaptive, thinking_effort=thinking_effort,
+        )
     elif provider == "ollama":
         target_url = _normalize_ollama_url(url)
         payload = _build_ollama_payload(
@@ -948,7 +1052,12 @@ async def llm_call_async(
     headers: Optional[Dict] = None,
     timeout: int = LLMConfig.STREAM_TIMEOUT,
     max_retries: int = LLMConfig.MAX_RETRIES,
-    prompt_type: Optional[str] = None
+    prompt_type: Optional[str] = None,
+    top_p: Optional[float] = None,
+    top_k: Optional[int] = None,
+    thinking_enabled: bool = False,
+    thinking_adaptive: bool = False,
+    thinking_effort: str = "auto",
 ) -> str:
     """Asynchronous LLM call using httpx with connection pooling, timeout, retry logic, and performance logging."""
     provider = _detect_provider(url)
@@ -976,7 +1085,11 @@ async def llm_call_async(
     if provider == "anthropic":
         target_url = _normalize_anthropic_url(url)
         h = _build_anthropic_headers(headers)
-        payload = _build_anthropic_payload(model, messages_copy, temperature, max_tokens)
+        payload = _build_anthropic_payload(
+            model, messages_copy, temperature, max_tokens,
+            top_p=top_p, top_k=top_k, thinking_enabled=thinking_enabled,
+            thinking_adaptive=thinking_adaptive, thinking_effort=thinking_effort,
+        )
     elif provider == "ollama":
         target_url = _normalize_ollama_url(url)
         h = {"Content-Type": "application/json"}
@@ -1051,7 +1164,10 @@ async def llm_call_async(
 async def stream_llm(url: str, model: str, messages: List[Dict], temperature: float = LLMConfig.DEFAULT_TEMPERATURE,
                      max_tokens: int = LLMConfig.DEFAULT_MAX_TOKENS, headers: Optional[Dict] = None,
                      timeout: int = LLMConfig.STREAM_TIMEOUT, prompt_type: Optional[str] = None,
-                     tools: Optional[List[Dict]] = None):
+                     tools: Optional[List[Dict]] = None,
+                     top_p: Optional[float] = None, top_k: Optional[int] = None,
+                     thinking_enabled: bool = False, thinking_adaptive: bool = False,
+                     thinking_effort: str = "auto"):
     """Stream LLM responses with improved error handling.
 
     Yields SSE chunks:
@@ -1080,7 +1196,11 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
     if provider == "anthropic":
         target_url = _normalize_anthropic_url(url)
         h = _build_anthropic_headers(headers)
-        payload = _build_anthropic_payload(model, messages_copy, temperature, max_tokens, stream=True, tools=tools)
+        payload = _build_anthropic_payload(
+            model, messages_copy, temperature, max_tokens, stream=True, tools=tools,
+            top_p=top_p, top_k=top_k, thinking_enabled=thinking_enabled,
+            thinking_adaptive=thinking_adaptive, thinking_effort=thinking_effort,
+        )
     elif provider == "ollama":
         target_url = _normalize_ollama_url(url)
         h = {"Content-Type": "application/json"}

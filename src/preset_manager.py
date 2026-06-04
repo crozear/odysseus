@@ -57,6 +57,9 @@ Use precise language. Show causal relationships explicitly. Quantify uncertainty
             "name": "Custom",
             "temperature": 1.0,
             "max_tokens": 0,
+            "top_p": None,
+            "top_k": None,
+            "stream": True,
             "system_prompt": "",
             "inject_prefix": "",
             "inject_suffix": "",
@@ -137,6 +140,9 @@ Use precise language. Show causal relationships explicitly. Quantify uncertainty
         enabled: bool = True,
         inject_prefix: str = "",
         inject_suffix: str = "",
+        top_p=None,
+        top_k=None,
+        stream: bool = True,
     ) -> bool:
         """Update the custom preset"""
         self.presets["custom"] = {
@@ -144,6 +150,9 @@ Use precise language. Show causal relationships explicitly. Quantify uncertainty
             "character_name": name,
             "temperature": temperature,
             "max_tokens": max_tokens,
+            "top_p": top_p,
+            "top_k": top_k,
+            "stream": stream,
             "system_prompt": system_prompt,
             "inject_prefix": inject_prefix,
             "inject_suffix": inject_suffix,

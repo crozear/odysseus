@@ -220,8 +220,10 @@ _PROVIDER_CURATED = {
         "gpt-image-1.5", "gpt-image-1", "dall-e-3", "tts-1", "whisper-1",
     ],
     "anthropic": [
-        "claude-sonnet-4", "claude-opus-4", "claude-haiku-4",
-        "claude-sonnet-4-5", "claude-haiku-3-5",
+        "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6",
+        "claude-opus-4-5", "claude-opus-4-1", "claude-opus-4",
+        "claude-sonnet-4-6", "claude-sonnet-4-5", "claude-sonnet-4",
+        "claude-haiku-4-5",
     ],
     "zai": [
         "glm-5", "glm-5.1", "glm-5v-turbo", "glm-4.7", "glm-4.7-flash",

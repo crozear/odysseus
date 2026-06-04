@@ -1062,6 +1062,15 @@
               <polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>
             </svg>
           </button>
+          <!-- Thinking controls (Anthropic only; hidden for other models). Popup
+               contents are built by thinking.js based on the model's capabilities. -->
+          <div class="thinking-wrapper" id="thinking-wrapper" style="position:relative;display:none;">
+            <button type="button" class="input-icon-btn" id="thinking-btn" title="Thinking" aria-label="Thinking" aria-haspopup="true" aria-expanded="false">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.5.4.8 1 .9 1.6l.1.7h6l.1-.7c.1-.6.4-1.2.9-1.6A7 7 0 0 0 12 2z"/></svg>
+              <span class="thinking-btn-badge" id="thinking-btn-badge" style="display:none;"></span>
+            </button>
+            <div class="thinking-popup hidden" id="thinking-popup"></div>
+          </div>
           <!-- RAG toolbar indicator (hidden until active) -->
           <button type="button" class="input-icon-btn tool-indicator" title="RAG active — click to deactivate" id="rag-indicator-btn" style="display:none;">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1144,10 +1153,24 @@
                 <span>Creative</span>
               </div>
               <div class="preset-slider-row">
-                <label>Max Tokens <span class="preset-hint-icon" title="Maximum length of the AI response. 'No limit' lets the model decide when to stop.">?</span></label>
+                <label>Max Tokens <span class="preset-hint-icon" title="Maximum length of the AI response. For Claude models this caps at the model's real output limit, in 2048-token steps.">?</span></label>
                 <span class="preset-slider-value" id="tokens-value">No limit</span>
               </div>
               <input type="range" class="preset-range" id="custom-max-tokens" min="256" max="8448" step="256" value="8448">
+              <div class="preset-slider-row">
+                <label>Top P <span class="preset-hint-icon" title="Nucleus sampling. With thinking on, Claude only allows 0.95–1. Temperature and Top P are mutually exclusive (temperature wins). Leave blank to skip.">?</span></label>
+                <span class="preset-slider-value" id="top-p-value">Off</span>
+              </div>
+              <input type="range" class="preset-range" id="custom-top-p" min="0" max="1" step="0.01" value="1">
+              <div class="preset-slider-row">
+                <label>Top K <span class="preset-hint-icon" title="Top-k sampling (0 = off). Not supported by Opus-4-7 / Opus-4-8.">?</span></label>
+                <span class="preset-slider-value" id="top-k-value">Off</span>
+              </div>
+              <input type="range" class="preset-range" id="custom-top-k" min="0" max="200" step="1" value="0">
+              <label class="preset-stream-row" for="custom-stream">
+                <span>Streaming <span class="preset-hint-icon" title="Stream the response token-by-token. Turn off to receive the full reply at once.">?</span></span>
+                <input type="checkbox" id="custom-stream" checked>
+              </label>
             </div>
             <!-- Prompt (character/persona) tab -->
             <div class="preset-chartab" data-chartab-panel="character" style="display:none">

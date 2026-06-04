@@ -14,6 +14,7 @@ import { addAITTSButton } from './tts-ai.js';
 import markdownModule from './markdown.js';
 import spinnerModule from './spinner.js';
 import presetsModule from './presets.js';
+import thinkingModule from './thinking.js';
 import fileHandlerModule from './fileHandler.js';
 import searchModule from './search.js';
 import documentModule from './document.js';
@@ -779,6 +780,16 @@ import createResearchSynapse from './researchSynapse.js';
       if (presetsModule.getSelectedPreset()) {
         fd.append('preset_id', presetsModule.getSelectedPreset());
       }
+
+      // Thinking controls (Anthropic models only; ignored server-side otherwise).
+      try {
+        const _think = thinkingModule.getThinkingParams();
+        if (_think && _think.enabled) {
+          fd.append('thinking_enabled', 'true');
+          fd.append('thinking_adaptive', _think.adaptive ? 'true' : 'false');
+          fd.append('thinking_effort', _think.effort || 'auto');
+        }
+      } catch (_e) { /* thinking unavailable — skip */ }
 
 
       const abortCtrl = new AbortController();

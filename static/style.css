@@ -2778,7 +2778,7 @@ body.bg-pattern-sparkles {
     }
     /* Model name takes the slack so the endpoint label + favorite dot sit on the right. */
     .model-picker-list .model-switch-item .mp-model-name {
-      flex: 1 1 auto;
+      flex: 1 0 auto;
       min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -35731,3 +35731,126 @@ body.theme-frosted .modal {
      is already ≥16px and never zoomed — leave it so we don't shrink it. */
   .doc-email-richbody.doc-font-m { font-size: 16px !important; }
 }
+
+/* ── Thinking controls (chat-input popup) ───────────────────────────────── */
+.thinking-wrapper { display: inline-flex; }
+#thinking-btn .thinking-btn-badge {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  min-width: 12px;
+  height: 12px;
+  padding: 0 2px;
+  font-size: 8px;
+  line-height: 12px;
+  font-weight: 700;
+  text-align: center;
+  border-radius: 6px;
+  background: var(--red);
+  color: #fff;
+}
+#thinking-btn.active {
+  opacity: 1;
+  color: var(--red);
+  background: color-mix(in srgb, var(--red) 12%, transparent);
+}
+.thinking-popup {
+  position: absolute;
+  bottom: calc(100% + 12px);
+  left: 0;
+  z-index: 300;
+  width: 240px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 -4px 20px rgba(0,0,0,0.4);
+  padding: 10px;
+}
+.thinking-popup.hidden { display: none; }
+.thinking-popup-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+  margin-bottom: 8px;
+}
+.thinking-switch { position: relative; display: inline-block; width: 34px; height: 18px; }
+.thinking-switch input { opacity: 0; width: 0; height: 0; }
+.thinking-switch-track {
+  position: absolute;
+  inset: 0;
+  cursor: pointer;
+  background: var(--border);
+  border-radius: 18px;
+  transition: background 0.15s;
+}
+.thinking-switch-track::before {
+  content: "";
+  position: absolute;
+  height: 14px;
+  width: 14px;
+  left: 2px;
+  top: 2px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.15s;
+}
+.thinking-switch input:checked + .thinking-switch-track { background: var(--red); }
+.thinking-switch input:checked + .thinking-switch-track::before { transform: translateX(16px); }
+.thinking-section { margin-top: 10px; }
+.thinking-section.thinking-disabled { opacity: 0.45; pointer-events: none; }
+.thinking-section-label {
+  font-size: 11px;
+  color: var(--color-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+}
+.thinking-effort-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.thinking-effort-btn {
+  flex: 1 1 auto;
+  min-width: 44px;
+  padding: 5px 8px;
+  font-size: 12px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.thinking-effort-btn:hover { background: color-mix(in srgb, var(--fg) 8%, transparent); }
+.thinking-effort-btn.active {
+  color: #fff;
+  background: var(--red);
+  border-color: var(--red);
+}
+.thinking-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--fg);
+}
+.thinking-row-main { display: flex; flex-direction: column; }
+.thinking-row-hint { font-size: 10px; color: var(--color-muted); }
+.thinking-note { font-size: 11px; color: var(--color-muted); line-height: 1.4; }
+
+/* Inject-tab streaming toggle row */
+.preset-stream-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg);
+}
+.preset-stream-row input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; }

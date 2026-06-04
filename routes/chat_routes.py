@@ -320,6 +320,8 @@ def setup_chat_routes(
             temperature=ctx.preset.temperature,
             max_tokens=ctx.preset.max_tokens,
             prompt_type=preset_id,
+            top_p=ctx.preset.top_p,
+            top_k=ctx.preset.top_k,
         )
         _clean_reply, _clean_md = clean_thinking_for_save(reply, {"model": sess.model})
         sess.add_message(ChatMessage("assistant", _clean_reply, metadata=_clean_md))
@@ -380,6 +382,11 @@ def setup_chat_routes(
         search_context = form_data.get("search_context")  # pre-fetched web search results (compare mode)
         compare_mode = str(form_data.get("compare_mode", "")).lower() == "true"
         incognito = str(form_data.get("incognito", "")).lower() == "true"
+        # Thinking controls (chat-input popup). Only affect Anthropic models;
+        # other providers ignore them downstream in _build_anthropic_payload.
+        thinking_enabled = str(form_data.get("thinking_enabled", "")).lower() == "true"
+        thinking_adaptive = str(form_data.get("thinking_adaptive", "")).lower() == "true"
+        thinking_effort = str(form_data.get("thinking_effort", "auto") or "auto").lower()
         chat_mode = str(form_data.get("mode", "")).lower()  # 'chat' or 'agent'
         # Did the USER explicitly pick agent mode? (vs. us auto-escalating
         # below). Skill extraction should only learn from real agent sessions,
@@ -834,19 +841,41 @@ def setup_chat_routes(
                 # ── Chat mode: call stream_llm directly, NO tools, NO document access ──
                 try:
                     _chat_candidates = [(sess.endpoint_url, sess.model, sess.headers)] + _fallback_candidates
-                    async for chunk in stream_llm_with_fallback(
-                        _chat_candidates,
-                        messages,
+                    # Respect the preset; max_tokens 0/unset = let the server decide
+                    # (no cap), matching agent mode. The old hard 4096 fallback
+                    # truncated reasoning models mid-<think>. top_p/top_k + thinking
+                    # only affect Anthropic; other providers ignore the extra kwargs.
+                    _llm_kwargs = dict(
                         temperature=ctx.preset.temperature,
-                        # Respect the preset; 0/unset = let the server decide (no
-                        # cap), matching agent mode. The old hard 4096 fallback
-                        # truncated reasoning models mid-<think> — they'd burn the
-                        # whole budget thinking and never emit the answer (seen in
-                        # Compare on heavy generation prompts).
                         max_tokens=ctx.preset.max_tokens,
-                        prompt_type=preset_id,
-                        tools=None,
-                    ):
+                        top_p=ctx.preset.top_p,
+                        top_k=ctx.preset.top_k,
+                        thinking_enabled=thinking_enabled,
+                        thinking_adaptive=thinking_adaptive,
+                        thinking_effort=thinking_effort,
+                    )
+                    if ctx.preset.stream:
+                        _chat_source = stream_llm_with_fallback(
+                            _chat_candidates, messages,
+                            prompt_type=preset_id, tools=None, **_llm_kwargs,
+                        )
+                    else:
+                        # Streaming disabled in the preset → one buffered upstream
+                        # call, re-emitted as the same SSE protocol so the loop
+                        # below (delta accumulation, save, post-tasks) is unchanged.
+                        async def _buffered_chat():
+                            try:
+                                _text = await llm_call_async(
+                                    sess.endpoint_url, sess.model, messages,
+                                    headers=sess.headers, prompt_type=preset_id, **_llm_kwargs,
+                                )
+                                if _text:
+                                    yield f'data: {json.dumps({"delta": _text})}\n\n'
+                                yield "data: [DONE]\n\n"
+                            except Exception as _e:
+                                yield f'event: error\ndata: {json.dumps({"error": str(_e)[:300], "status": 502})}\n\n'
+                        _chat_source = _buffered_chat()
+                    async for chunk in _chat_source:
                         if chunk.startswith("data: ") and not chunk.startswith("data: [DONE]"):
                             try:
                                 data = json.loads(chunk[6:])

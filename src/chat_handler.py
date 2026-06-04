@@ -53,7 +53,8 @@ class ChatHandler:
     # ------------------------------------------------------------------
 
     def validate_and_extract_preset(self, preset_id: Optional[str]) -> tuple:
-        """Returns (temperature, max_tokens, preset_system_prompt, character_name)."""
+        """Returns (temperature, max_tokens, preset_system_prompt, character_name,
+        top_p, top_k, stream)."""
         if preset_id and preset_id not in self.preset_manager.presets:
             raise HTTPException(400, f"Invalid preset_id: {preset_id}")
 
@@ -61,12 +62,15 @@ class ChatHandler:
         max_tokens = DEFAULT_MAX_TOKENS
         preset_system_prompt = None
         character_name = ""
+        top_p = None
+        top_k = None
+        stream = True
 
         if preset_id and preset_id in self.preset_manager.presets:
             preset = self.preset_manager.presets[preset_id]
             if preset.get("enabled") is False:
                 logger.info(f"Preset {preset_id} is disabled, using defaults")
-                return temperature, max_tokens, preset_system_prompt, character_name
+                return temperature, max_tokens, preset_system_prompt, character_name, top_p, top_k, stream
             if preset.get("system_prompt"):
                 preset_system_prompt = preset["system_prompt"]
             character_name = preset.get("character_name", "")
@@ -80,9 +84,12 @@ class ChatHandler:
                 temperature = preset["temperature"]
             if "max_tokens" in preset:
                 max_tokens = preset["max_tokens"]
+            top_p = preset.get("top_p")
+            top_k = preset.get("top_k")
+            stream = preset.get("stream", True)
 
         logger.info(f"Preset {preset_id}: temp={temperature}, max_tokens={max_tokens}")
-        return temperature, max_tokens, preset_system_prompt, character_name
+        return temperature, max_tokens, preset_system_prompt, character_name, top_p, top_k, stream
 
     def enhance_message_if_needed(self, message: str) -> str:
         """CoT enhancement disabled — modern models reason natively."""

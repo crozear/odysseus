@@ -2,7 +2,7 @@ services:
   odysseus:
     build: .
     ports:
-      - "${APP_BIND:-127.0.0.1}:${APP_PORT:-7000}:7000"
+      - "${APP_BIND:-0.0.0.0}:${APP_PORT:-7000}:7000"
     volumes:
       - ./data:/app/data:z
       - ./logs:/app/logs:z
@@ -35,9 +35,9 @@ services:
       - AUTH_ENABLED=${AUTH_ENABLED:-true}
       - LOCALHOST_BYPASS=${LOCALHOST_BYPASS:-false}
       - ODYSSEUS_ADMIN_USER=${ODYSSEUS_ADMIN_USER:-admin}
-      - ODYSSEUS_ADMIN_PASSWORD=${ODYSSEUS_ADMIN_PASSWORD:-}
+      - ODYSSEUS_ADMIN_PASSWORD=${ODYSSEUS_ADMIN_PASSWORD:-Smith123}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost,http://127.0.0.1}
-      - SECURE_COOKIES=${SECURE_COOKIES:-false}
+      - SECURE_COOKIES=${SECURE_COOKIES:-true}
       - EMBEDDING_URL=${EMBEDDING_URL:-}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-}
       - FASTEMBED_MODEL=${FASTEMBED_MODEL:-sentence-transformers/all-MiniLM-L6-v2}
@@ -61,6 +61,7 @@ services:
       # Find yours with:  id -u  /  id -g
       - PUID=${PUID:-1000}
       - PGID=${PGID:-1000}
+      - NODE_ENV=production
     depends_on:
       searxng:
         condition: service_healthy
@@ -138,8 +139,33 @@ services:
     environment:
       - NTFY_BASE_URL=${NTFY_BASE_URL:-http://localhost:8091}
     restart: unless-stopped
+    
+  claude-proxy:
+    image: docker.io/node:22-alpine
+    working_dir: /app
+    # server.js uses only Node built-ins, so no npm install step is needed.
+    command: node server/server.js
+    ports:
+      # Exposed so you can complete the claude.ai OAuth flow from your host
+      # browser at http://localhost:42069/auth/login.
+      - "42069:42069"
+    volumes:
+      # Mount the proxy SUBFOLDER (not the Odysseus root) at the working dir.
+      - ./claude-code-proxy:/app
+      # Persist OAuth tokens (saved to /root/.claude-code-proxy/tokens.json)
+      # across container recreates so you don't re-auth every restart.
+      - claude-proxy-tokens:/root/.claude-code-proxy
+    networks:
+      default:
+        # Odysseus picks the API schema from the endpoint hostname; a host
+        # ending in .anthropic.com makes it speak Anthropic's /v1/messages
+        # schema, which is exactly what this proxy expects.
+        aliases:
+          - proxy.anthropic.com
+    restart: unless-stopped
 
 volumes:
   searxng-data:
   chromadb-data:
   ntfy-cache:
+  claude-proxy-tokens:

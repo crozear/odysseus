@@ -40,17 +40,16 @@ REQUEST_TIMEOUT = 5
 # Substring matching — use the shortest unique prefix so variants get caught.
 KNOWN_CONTEXT_WINDOWS = {
     # --- Anthropic ---
-    'claude-sonnet-4-5': 200000,
-    'claude-sonnet-4-6': 200000,
-    'claude-sonnet-4': 200000,
+    'claude-opus-4-8': 1000000,
+    'claude-opus-4-7': 1000000,
+    'claude-opus-4-6': 1000000,
+    'claude-opus-4-5': 200000,
+    'claude-opus-4-1': 200000,
     'claude-opus-4': 200000,
-    'claude-haiku-4': 200000,
-    'claude-haiku-3-5': 200000,
-    'claude-3-5-sonnet': 200000,
-    'claude-3-5-haiku': 200000,
-    'claude-3-opus': 200000,
-    'claude-3-sonnet': 200000,
-    'claude-3-haiku': 200000,
+    'claude-sonnet-4-6': 1000000,
+    'claude-sonnet-4-5': 200000,
+    'claude-sonnet-4': 200000,
+    'claude-haiku-4-5': 200000,
 
     # --- OpenAI ---
     'gpt-5': 400000,
