@@ -618,6 +618,8 @@ def _build_anthropic_payload(model, messages, temperature, max_tokens, stream=Fa
     if thinking_on:
         if allow_top_p and top_p is not None:
             payload["top_p"] = max(0.95, min(float(top_p), 1.0))
+        if allow_top_k and top_k is not None:
+            payload["top_k"] = 0  # Disable top-k when thinking is on, to avoid conflicts with the thinking process
     else:
         if allow_temp and temperature is not None:
             payload["temperature"] = max(0.0, min(temperature, 1.0))

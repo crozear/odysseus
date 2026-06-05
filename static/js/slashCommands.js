@@ -795,7 +795,7 @@ async function handleSetupWizard(mode, input) {
 }
 
 function _syncToggleUI(name, state) {
-  const btnMap = { web: 'web-toggle-btn', bash: 'bash-toggle-btn', incognito: 'incognito-btn' };
+  const btnMap = { web: 'web-toggle-btn', bash: 'bash-toggle-btn', incognito: 'incognito-btn', thinking: 'thinking-toggle-btn' };
   if (name === 'rag' && window._syncRagIndicator) {
     window._syncRagIndicator(state);
   } else if (name === 'research' && window._syncResearchIndicator) {
@@ -807,7 +807,7 @@ function _syncToggleUI(name, state) {
 }
 
 async function _quickToggle(name) {
-  const toggleMap = { web: 'web-toggle', bash: 'bash-toggle', research: 'research-toggle' };
+  const toggleMap = { web: 'web-toggle', bash: 'bash-toggle', research: 'research-toggle', thinking: 'thinking-toggle' };
   const chk = document.getElementById(toggleMap[name]);
   if (!chk) return false;
   chk.checked = !chk.checked;
@@ -818,7 +818,7 @@ async function _quickToggle(name) {
 }
 
 async function _applyToggle(name, val) {
-  const toggleMap = { web: 'web-toggle', bash: 'bash-toggle', research: 'research-toggle' };
+  const toggleMap = { web: 'web-toggle', bash: 'bash-toggle', research: 'research-toggle', thinking: 'thinking-toggle' };
   const chk = document.getElementById(toggleMap[name]);
   if (!chk) return;
   const newState = val === 'on' ? true : val === 'off' ? false : !chk.checked;
@@ -1144,7 +1144,7 @@ async function _cmdToggleDoc(args, ctx) {
 async function _cmdToggleShow(args, ctx) {
   const name = (args[0] || '').toLowerCase();
   const val = (args[1] || '').toLowerCase();
-  const toggleMap = { web: 'web-toggle', bash: 'bash-toggle', research: 'research-toggle' };
+  const toggleMap = { web: 'web-toggle', bash: 'bash-toggle', research: 'research-toggle', thinking: 'thinking-toggle' };
   if (!name || !toggleMap[name]) {
     const status = Object.keys(toggleMap).map(k => {
       const chk = document.getElementById(toggleMap[k]);
@@ -2217,6 +2217,7 @@ async function _cmdDemo(args, ctx) {
     { sel: '#model-picker-btn',   text: 'Pick your LLM, Local or API.', advanceOnClick: true },
     { sel: '#mode-agent-btn',     text: '<b>Agent mode</b> gives Odysseus more control of the app when your model supports tools: create a theme, download a model, make a daily task, organize things, and more.', mode: 'click' },
     { sel: '#web-toggle-btn',     text: 'Toggle tools like <b>web search</b>. Odysseus comes with private built-in <b>SearXNG</b> search.', mode: 'click' },
+    { sel: '#thinking-toggle-btn',   text: 'Change thinking settings!', mode: 'click' },
     { sel: '#overflow-plus-btn',  text: 'More tools can be found here, or in your sidebar. <b>Click to peek.</b>',
       advanceOnClick: true, pulseNext: true, afterDelay: 2200 },
     { sel: '#message',            text: 'Write your prompt here. Drag and drop files to attach them. <b>/prompt</b> for random prompt, <b>/help</b> for more.',

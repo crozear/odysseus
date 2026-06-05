@@ -155,6 +155,7 @@ import createResearchSynapse from './researchSynapse.js';
   export function init(apiBase) {
     API_BASE = apiBase;
     initSlashCommands({ apiBase, isStreaming: () => isStreaming });
+    thinkingModule.init();
     // Initialize email inbox
     emailInbox.init(documentModule);
     // Wire the slash-command autocomplete popup on the chat composer. The
@@ -771,6 +772,9 @@ import createResearchSynapse from './researchSynapse.js';
       }
       if (el('bash-toggle').checked) {
         fd.append('allow_bash', 'true');
+      }
+      if (el('thinking-toggle').checked) {
+        fd.append('allow_thinking', 'true');
       }
       const ragChk = el('rag-toggle');
       if (ragChk && !ragChk.checked) {

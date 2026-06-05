@@ -19,11 +19,11 @@ export function handleUIControl(uiData) {
   try {
     if (uiEvent === 'toggle' || uiData.ui_event === 'toggle') {
       var toggleMap = {
-        web: 'web-toggle', bash: 'bash-toggle', rag: 'rag-toggle',
+        web: 'web-toggle', bash: 'bash-toggle', rag: 'rag-toggle', thinking: 'thinking-toggle',
         research: 'research-toggle', incognito: 'incognito-toggle',
       };
       var btnMap = {
-        web: 'web-toggle-btn', bash: 'bash-toggle-btn', rag: 'rag-indicator-btn',
+        web: 'web-toggle-btn', bash: 'bash-toggle-btn', rag: 'rag-indicator-btn', thinking: 'thinking-toggle-btn',
       };
       var chkId = toggleMap[uiData.toggle_name];
       var btnId = btnMap[uiData.toggle_name];

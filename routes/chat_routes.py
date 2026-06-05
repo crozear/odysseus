@@ -19,7 +19,6 @@ from src import agent_runs
 from src.model_context import estimate_tokens
 from src.chat_helpers import coerce_message_and_session
 from src.endpoint_resolver import normalize_base as _normalize_base, build_chat_url
-from src.prompt_security import untrusted_context_message
 from core.exceptions import SessionNotFoundError
 from src.auth_helpers import get_current_user
 from routes.session_routes import _verify_session_owner
@@ -329,7 +328,7 @@ def setup_chat_routes(
                 )
                 ctx.messages.insert(
                     len(ctx.preface),
-                    untrusted_context_message("research context", research_ctx),
+                    research_ctx,
                 )
             except Exception as e:
                 logger.error(f"Research failed: {e}")
@@ -391,6 +390,7 @@ def setup_chat_routes(
         preset_id = form_data.get("preset_id")
         allow_bash = form_data.get("allow_bash")
         allow_web_search = form_data.get("allow_web_search")
+        allow_thinking = form_data.get("allow_thinking")
         use_rag = form_data.get("use_rag")
         search_context = form_data.get("search_context")  # pre-fetched web search results (compare mode)
         compare_mode = str(form_data.get("compare_mode", "")).lower() == "true"
@@ -594,6 +594,8 @@ def setup_chat_routes(
         if str(allow_web_search).lower() != "true":
             disabled_tools.add("web_search")
             disabled_tools.add("web_fetch")
+        if str(allow_thinking).lower() != "true":
+            disabled_tools.add("thinking")
 
         # Nobody/incognito mode: deny tools that would expose the user's
         # persistent memory, past chats, or other identity-linked data.
@@ -657,7 +659,7 @@ def setup_chat_routes(
             disabled_tools.update(_compare_strip)
             # In chat mode compare, disable ALL agent tools (no bash, python, file ops)
             if chat_mode == 'chat':
-                disabled_tools.update({"bash", "python", "read_file", "write_file", "web_search", "web_fetch", "search_chats", "manage_tasks"})
+                disabled_tools.update({"bash", "python", "read_file", "write_file", "web_search", "thinking", "web_fetch", "search_chats", "manage_tasks"})
 
         async def stream_with_save() -> AsyncGenerator[str, None]:
             # _effective_mode is read-only here; closure captures it from
@@ -1176,7 +1178,7 @@ def setup_chat_routes(
         _verify_session_owner(request, session_id)
         try:
             sess = session_manager.get_session(session_id)
-            msg = untrusted_context_message("injected research context", f"Research Context: {context}")
+            msg = (f"Research Context: {context}")
             sess.add_message(ChatMessage(msg["role"], msg["content"], metadata=msg.get("metadata")))
             session_manager.save_sessions()
             return {"status": "context_injected"}

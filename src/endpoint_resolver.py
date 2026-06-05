@@ -212,7 +212,7 @@ def resolve_endpoint(
     """Resolve an endpoint/model from settings, with fallback.
 
     Args:
-        setting_prefix: Settings key prefix, e.g. "research", "task", "utility", "default".
+        setting_prefix: Settings key prefix, e.g. "research", "utility", "default".
                        Reads ``{prefix}_endpoint_id`` and ``{prefix}_model`` from settings.
         fallback_url:    URL to use if settings are empty or endpoint missing.
         fallback_model:  Model to use if settings are empty.
@@ -246,7 +246,7 @@ def resolve_endpoint(
         ep_id = _stg("default_endpoint_id")
         model = _stg("default_model")
 
-    # Fall back to utility model for task/research/auto-naming if not specifically configured.
+    # Fall back to utility model for research/auto-naming if not specifically configured.
     # If Utility itself is unset, the block above makes that resolve to Default Chat.
     if not ep_id and setting_prefix != "utility":
         ep_id = _stg("utility_endpoint_id")

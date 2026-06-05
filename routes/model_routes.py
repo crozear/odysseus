@@ -38,7 +38,6 @@ _ENDPOINT_SETTING_FIELDS = {
     "default_endpoint_id":  ("default_model",  "Default Model"),
     "utility_endpoint_id":  ("utility_model",   "Utility Model"),
     "research_endpoint_id": ("research_model",  "Deep Research"),
-    "task_endpoint_id":     ("task_model",       "Background Tasks"),
 }
 
 _ENDPOINT_FALLBACK_FIELDS = {

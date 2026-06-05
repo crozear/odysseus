@@ -110,8 +110,6 @@ DEFAULT_SETTINGS = {
     # entry is an absolute path. Sensitive subpaths (.ssh, .gnupg, shell
     # rc files, SSH key files) are always blocked regardless of roots.
     "tool_path_extra_roots": [],
-    "task_endpoint_id": "",
-    "task_model": "",
     "default_endpoint_id": "",
     "default_model": "",
     # Ordered fallback chain for the default chat model. Each entry is
@@ -168,6 +166,7 @@ DEFAULT_FEATURES = {
     "memory": True,
     "document_editor": True,
     "rag": True,
+    "thinking": True,
     "sensitive_filter": True,
     "gallery": True,
 }

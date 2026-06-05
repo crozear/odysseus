@@ -35732,116 +35732,164 @@ body.theme-frosted .modal {
   .doc-email-richbody.doc-font-m { font-size: 16px !important; }
 }
 
-/* ── Thinking controls (chat-input popup) ───────────────────────────────── */
-.thinking-wrapper { display: inline-flex; }
-#thinking-btn .thinking-btn-badge {
-  position: absolute;
-  top: 1px;
-  right: 1px;
-  min-width: 12px;
-  height: 12px;
-  padding: 0 2px;
-  font-size: 8px;
-  line-height: 12px;
-  font-weight: 700;
-  text-align: center;
-  border-radius: 6px;
-  background: var(--red);
-  color: #fff;
+/* ── Thinking controls (chat-input menu) ────────────────────────────────── */
+/* Mirrors .overflow-wrapper / .overflow-menu / .overflow-menu-item exactly. */
+.thinking-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
 }
-#thinking-btn.active {
+/* Active-dot on the button when thinking is on — mirrors .plus-active-dot */
+.thinking-active-dot {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 6px;
+  height: 6px;
+  background: var(--red);
+  border-radius: 50%;
+  pointer-events: none;
+}
+#thinking-toggle-btn.active {
   opacity: 1;
   color: var(--red);
   background: color-mix(in srgb, var(--red) 12%, transparent);
 }
-.thinking-popup {
-  position: absolute;
-  bottom: calc(100% + 12px);
-  left: 0;
-  z-index: 300;
-  width: 240px;
+#thinking-toggle-btn.expanded { transition: none; opacity: 1; }
+.thinking-menu {
+  position: fixed;
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 -4px 20px rgba(0,0,0,0.4);
-  padding: 10px;
+  border-radius: 10px;
+  padding: 4px;
+  min-width: 190px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+  z-index: 1000;
+  transform-origin: bottom left;
+  animation: thinking-menu-pop 0.17s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
-.thinking-popup.hidden { display: none; }
-.thinking-popup-head {
+.thinking-menu.hidden { display: none; }
+.thinking-menu.closing {
+  animation: thinking-menu-pop-out 0.17s cubic-bezier(0.5, 0, 0.75, 0) forwards;
+  animation-delay: 0.11s;
+}
+@keyframes thinking-menu-pop {
+  0%   { transform: scale(0.7) translateY(6px); opacity: 0; }
+  100% { transform: scale(1)   translateY(0);   opacity: 1; }
+}
+@keyframes thinking-menu-pop-out {
+  0%   { transform: scale(1)   translateY(0);   opacity: 1; }
+  100% { transform: scale(0.6) translateY(8px); opacity: 0; }
+}
+.thinking-menu-item {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  font-size: 13px;
-  font-weight: 600;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  background: none;
+  border: none;
   color: var(--fg);
-  margin-bottom: 8px;
+  opacity: 0.7;
+  cursor: pointer;
+  border-radius: 6px;
+  font-size: 13px;
+  text-align: left;
+  box-sizing: border-box;
+  animation: thinking-item-in 0.27s cubic-bezier(0.22, 1.61, 0.36, 1) backwards;
 }
-.thinking-switch { position: relative; display: inline-block; width: 34px; height: 18px; }
-.thinking-switch input { opacity: 0; width: 0; height: 0; }
-.thinking-switch-track {
+.thinking-menu:not(.hidden):not(.closing) .thinking-menu-item:nth-last-child(1)  { animation-delay: 0.01s; }
+.thinking-menu:not(.hidden):not(.closing) .thinking-menu-item:nth-last-child(2)  { animation-delay: 0.05s; }
+.thinking-menu:not(.hidden):not(.closing) .thinking-menu-item:nth-last-child(3)  { animation-delay: 0.09s; }
+.thinking-menu:not(.hidden):not(.closing) .thinking-menu-item:nth-last-child(4)  { animation-delay: 0.13s; }
+.thinking-menu:not(.hidden):not(.closing) .thinking-menu-item:nth-last-child(5)  { animation-delay: 0.17s; }
+.thinking-menu:not(.hidden):not(.closing) .thinking-menu-item:nth-last-child(6)  { animation-delay: 0.21s; }
+.thinking-menu:not(.hidden):not(.closing) .thinking-menu-item:nth-last-child(7)  { animation-delay: 0.25s; }
+.thinking-menu:not(.hidden):not(.closing) .thinking-menu-item:nth-last-child(8)  { animation-delay: 0.29s; }
+@keyframes thinking-item-in {
+  0%   { opacity: 0; transform: translateY(10px) translateX(-6px) scale(0.9); }
+  60%  { opacity: 1; }
+  100% { opacity: 1; transform: translateY(0)    translateX(0)    scale(1); }
+}
+.thinking-menu.closing .thinking-menu-item {
+  animation: thinking-item-out 0.15s ease-in forwards;
+}
+.thinking-menu.closing .thinking-menu-item:nth-child(1) { animation-delay: 0.00s; }
+.thinking-menu.closing .thinking-menu-item:nth-child(2) { animation-delay: 0.01s; }
+.thinking-menu.closing .thinking-menu-item:nth-child(3) { animation-delay: 0.03s; }
+.thinking-menu.closing .thinking-menu-item:nth-child(4) { animation-delay: 0.04s; }
+.thinking-menu.closing .thinking-menu-item:nth-child(5) { animation-delay: 0.06s; }
+.thinking-menu.closing .thinking-menu-item:nth-child(6) { animation-delay: 0.07s; }
+.thinking-menu.closing .thinking-menu-item:nth-child(7) { animation-delay: 0.09s; }
+.thinking-menu.closing .thinking-menu-item:nth-child(8) { animation-delay: 0.10s; }
+@keyframes thinking-item-out {
+  0%   { opacity: 1; transform: translateY(0)   translateX(0)    scale(1);    }
+  100% { opacity: 0; transform: translateY(6px) translateX(-3px) scale(0.92); }
+}
+.thinking-menu-item:hover {
+  opacity: 1;
+  background: color-mix(in srgb, var(--red) 10%, transparent);
+}
+.thinking-menu-item.active { opacity: 1; color: var(--fg); }
+.thinking-menu-item.active-red { opacity: 1; color: var(--red); }
+/* Dot marking the selected effort level — mirrors .overflow-active-dot */
+.thinking-item-dot {
+  width: 6px;
+  height: 6px;
+  background: var(--red);
+  border-radius: 50%;
+  margin-left: auto;
+  flex-shrink: 0;
+  display: none;
+}
+.thinking-menu-item.active .thinking-item-dot { display: block; }
+/* Divider between sections */
+.thinking-menu-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 8px;
+  opacity: 0.5;
+}
+/* Section label (e.g. "Effort") */
+.thinking-menu-label {
+  padding: 6px 12px 2px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+  opacity: 0.7;
+}
+/* Small note line for adaptive-only/extended-only models */
+.thinking-menu-note {
+  padding: 4px 12px 6px;
+  font-size: 11px;
+  color: var(--color-muted);
+  opacity: 0.7;
+  line-height: 1.4;
+}
+/* Toggle switch inside a menu item (for enable / adaptive rows) */
+.thinking-item-switch { position: relative; display: inline-block; width: 32px; height: 17px; flex-shrink: 0; margin-left: auto; }
+.thinking-item-switch input { opacity: 0; width: 0; height: 0; }
+.thinking-item-switch-track {
   position: absolute;
   inset: 0;
   cursor: pointer;
   background: var(--border);
-  border-radius: 18px;
-  transition: background 0.15s;
+  border-radius: 17px;
+  transition: background 0.1s;
 }
-.thinking-switch-track::before {
+.thinking-item-switch-track::before {
   content: "";
   position: absolute;
-  height: 14px;
-  width: 14px;
-  left: 2px;
-  top: 2px;
+  height: 13px; width: 13px;
+  left: 2px; top: 2px;
   background: #fff;
   border-radius: 50%;
-  transition: transform 0.15s;
+  transition: transform 0.1s;
 }
-.thinking-switch input:checked + .thinking-switch-track { background: var(--red); }
-.thinking-switch input:checked + .thinking-switch-track::before { transform: translateX(16px); }
-.thinking-section { margin-top: 10px; }
-.thinking-section.thinking-disabled { opacity: 0.45; pointer-events: none; }
-.thinking-section-label {
-  font-size: 11px;
-  color: var(--color-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  margin-bottom: 6px;
-}
-.thinking-effort-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-.thinking-effort-btn {
-  flex: 1 1 auto;
-  min-width: 44px;
-  padding: 5px 8px;
-  font-size: 12px;
-  color: var(--fg);
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background 0.12s, border-color 0.12s;
-}
-.thinking-effort-btn:hover { background: color-mix(in srgb, var(--fg) 8%, transparent); }
-.thinking-effort-btn.active {
-  color: #fff;
-  background: var(--red);
-  border-color: var(--red);
-}
-.thinking-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--fg);
-}
-.thinking-row-main { display: flex; flex-direction: column; }
-.thinking-row-hint { font-size: 10px; color: var(--color-muted); }
-.thinking-note { font-size: 11px; color: var(--color-muted); line-height: 1.4; }
+.thinking-item-switch input:checked + .thinking-item-switch-track { background: var(--red); }
+.thinking-item-switch input:checked + .thinking-item-switch-track::before { transform: translateX(15px); }
 
 /* Inject-tab streaming toggle row */
 .preset-stream-row {

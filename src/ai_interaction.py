@@ -1265,7 +1265,7 @@ async def do_ui_control(content: str, session_id: Optional[str] = None, owner: O
       Line 2+: action-specific params
 
     Actions:
-      toggle <name> <on|off>  — Toggle a setting (web, bash, rag, research, incognito, document_editor)
+      toggle <name> <on|off>  — Toggle a setting (web, thinking, bash, rag, research, incognito, document_editor)
       set_mode <agent|chat>   — Switch between agent and chat mode
       switch_model <model>    — Change the model for the current session
       set_theme <preset>      — Apply a theme preset (dark, light, paper, nord, dracula, gruvbox, gpt, claude, lavender, etc.)
@@ -1293,6 +1293,8 @@ async def do_ui_control(content: str, session_id: Optional[str] = None, owner: O
             "search": "web",
             "websearch": "web",
             "web_search": "web",
+            "reasoning": "thinking",
+            "think": "thinking",
             "deepresearch": "research",
             "deep_research": "research",
             "documents": "document_editor",
@@ -1301,7 +1303,7 @@ async def do_ui_control(content: str, session_id: Optional[str] = None, owner: O
             "private": "incognito",
         }
         toggle_name = _toggle_aliases.get(toggle_name, toggle_name)
-        valid_toggles = {"web", "bash", "rag", "research", "incognito", "document_editor"}
+        valid_toggles = {"web", "thinking", "bash", "rag", "research", "incognito", "document_editor"}
         if toggle_name not in valid_toggles:
             return {"error": f"Unknown toggle '{toggle_name}'. Valid: {', '.join(sorted(valid_toggles))}"}
         return {

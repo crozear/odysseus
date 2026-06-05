@@ -15,7 +15,6 @@ from src.llm_core import normalize_model_id
 from src.endpoint_resolver import normalize_base
 from src.context_compactor import maybe_compact, trim_for_context
 from src.auth_helpers import get_current_user
-from src.prompt_security import untrusted_context_message
 from routes.prefs_routes import _load_for_user as load_prefs_for_user
 
 from fastapi import HTTPException
@@ -525,14 +524,6 @@ async def build_chat_context(
 
     # Capture used memories immediately
     used_memories = getattr(chat_processor, '_last_used_memories', [])
-
-    # Inject pre-fetched search context (compare mode)
-    if search_context:
-        preface.append(untrusted_context_message("prefetched search context", search_context))
-
-    # YouTube transcripts
-    for transcript in preprocessed.youtube_transcripts:
-        preface.append(untrusted_context_message("youtube transcript", transcript))
 
     # Normalize model ID. Prefer cached endpoint models so group chat does not
     # re-hit slow local /models endpoints on every participant turn.

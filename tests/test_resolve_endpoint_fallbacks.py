@@ -87,28 +87,6 @@ def test_utility_uses_default_when_utility_endpoint_unset(monkeypatch):
     assert headers == {"Authorization": "Bearer key-default"}
 
 
-def test_task_uses_utility_when_task_endpoint_unset(monkeypatch):
-    settings = {
-        "task_endpoint_id": "",
-        "task_model": "",
-        "utility_endpoint_id": "utility",
-        "utility_model": "utility-chat",
-        "default_endpoint_id": "default",
-        "default_model": "default-chat",
-    }
-    _install_resolver_fakes(
-        monkeypatch,
-        settings,
-        [_endpoint("utility", "utility-chat"), _endpoint("default", "default-chat")],
-    )
-
-    url, model, headers = resolve_endpoint("task")
-
-    assert url == "https://utility.example/v1/chat/completions"
-    assert model == "utility-chat"
-    assert headers == {"Authorization": "Bearer key-utility"}
-
-
 def test_research_uses_default_when_research_and_utility_unset(monkeypatch):
     settings = {
         "research_endpoint_id": "",
@@ -129,8 +107,6 @@ def test_research_uses_default_when_research_and_utility_unset(monkeypatch):
 
 def test_returns_explicit_fallback_when_no_endpoint_id_configured(monkeypatch):
     settings = {
-        "task_endpoint_id": "",
-        "task_model": "",
         "utility_endpoint_id": "",
         "utility_model": "",
         "default_endpoint_id": "",
@@ -140,7 +116,7 @@ def test_returns_explicit_fallback_when_no_endpoint_id_configured(monkeypatch):
     _install_resolver_fakes(monkeypatch, settings, [])
 
     assert resolve_endpoint(
-        "task",
+        "utility",
         fallback_url=fallback[0],
         fallback_model=fallback[1],
         fallback_headers=fallback[2],

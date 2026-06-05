@@ -501,7 +501,7 @@ export async function refreshModels(force = false) {
       searchBox.placeholder = 'Search models...';
       searchBox.className = 'model-search-input';
       searchBox.addEventListener('click', (e) => e.stopPropagation());
-      searchBox.addEventListener('touchstart', (e) => e.stopPropagation());
+      searchBox.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true });
       // Container for flat search results (rendered from _cachedItems, ignores collapse)
       const searchResults = document.createElement('div');
       searchResults.className = 'models-search-results';

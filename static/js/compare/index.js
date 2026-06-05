@@ -164,7 +164,7 @@ async function deactivate(teardown) {
   if (_modeToggleR) { _modeToggleR.style.pointerEvents = ''; _modeToggleR.style.opacity = ''; }
 
   // Restore tool toggle pointer events
-  ['overflow-plus-btn', 'web-toggle-btn', 'bash-toggle-btn'].forEach(id => {
+  ['overflow-plus-btn', 'web-toggle-btn', 'bash-toggle-btn', 'thinking-toggle-btn'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.pointerEvents = '';
   });

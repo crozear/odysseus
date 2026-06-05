@@ -91,7 +91,7 @@ def test_sanitize_merges_search_results_and_user_query():
     # preface (system policy + search results) + session messages (latest user query)
     messages = [
         {"role": "system", "content": "You are a helpful assistant."},
-        {"role": "user", "content": "UNTRUSTED SOURCE DATA\nSource: web search results\n<<<UNTRUSTED_SOURCE_DATA>>>\nHere are some web search results about python.\n<<<END_UNTRUSTED_SOURCE_DATA>>>"},
+        {"role": "user", "content": "Source: web search results\nHere are some web search results about python."},
         {"role": "user", "content": "What is the latest version of python?"}
     ]
 
@@ -103,7 +103,7 @@ def test_sanitize_merges_search_results_and_user_query():
     assert out[0] == {"role": "system", "content": "You are a helpful assistant."}
     assert out[1]["role"] == "user"
     assert out[1]["content"] == (
-        "UNTRUSTED SOURCE DATA\nSource: web search results\n<<<UNTRUSTED_SOURCE_DATA>>>\nHere are some web search results about python.\n<<<END_UNTRUSTED_SOURCE_DATA>>>"
+        "Source: web search results\nHere are some web search results about python."
         "\n\n"
         "What is the latest version of python?"
     )

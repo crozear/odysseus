@@ -8,7 +8,6 @@ from typing import List, Dict, Any, Optional, Tuple
 from src.chat_helpers import extract_urls
 from src.youtube_handler import is_youtube_url
 from src.search import comprehensive_web_search, fetch_webpage_content
-from src.prompt_security import UNTRUSTED_CONTEXT_POLICY, untrusted_context_message
 
 logger = logging.getLogger(__name__)
 
@@ -194,10 +193,6 @@ class ChatProcessor:
                 })
             except Exception:
                 logger.debug("Failed to add current date/time context", exc_info=True)
-        preface.append({
-            "role": "system",
-            "content": UNTRUSTED_CONTEXT_POLICY,
-        })
 
         # Memory: pinned (always included) + extended (RAG-retrieved when relevant)
         self._last_used_memories = []  # track what was injected
@@ -210,10 +205,9 @@ class ChatProcessor:
             _used_ids: list = []
             if pinned:
                 pinned_text = "\n- ".join([m["text"] for m in pinned])
-                preface.append(untrusted_context_message(
-                    "saved memory: pinned user facts",
+                preface.append(
                     f"Core facts about the user:\n- {pinned_text}",
-                ))
+                )
                 for m in pinned:
                     self._last_used_memories.append({"text": m["text"], "category": m.get("category", "fact"), "type": "pinned"})
                     if m.get("id"):
@@ -223,13 +217,12 @@ class ChatProcessor:
                 relevant = self._hybrid_retrieve(message, extended, k=3)
                 if relevant:
                     ext_text = "\n".join([f"- {m['text']}" for m in relevant])
-                    preface.append(untrusted_context_message(
-                        "saved memory: retrieved context",
+                    preface.append(
                         (
                             "Memory context. Do not reference unless the user asks "
                             f"about these topics.\n{ext_text}"
                         ),
-                    ))
+                    )
                     for m in relevant:
                         self._last_used_memories.append({"text": m["text"], "category": m.get("category", "fact"), "type": "recalled"})
                         if m.get("id"):
@@ -268,7 +261,7 @@ class ChatProcessor:
                         )
                         if len(rag_content) > 10000:
                             rag_content = rag_content[:10000] + "\n[Truncated]"
-                        preface.append(untrusted_context_message("retrieved documents", rag_content))
+                        preface.append(rag_content)
             except Exception as e:
                 logger.warning(f"RAG retrieval failed: {e}")
 
@@ -279,7 +272,7 @@ class ChatProcessor:
                 web_context, web_sources = comprehensive_web_search(
                     message, time_filter=time_filter, return_sources=True
                 )
-                preface.append(untrusted_context_message("web search results", web_context))
+                preface.append(web_context)
             except Exception as e:
                 logger.error(f"Web search failed: {e}")
                 preface.append({"role": "system", "content": "Web search encountered an error and could not retrieve results."})
@@ -298,10 +291,9 @@ class ChatProcessor:
                 result = fetch_webpage_content(url)
                 if result.get('success'):
                     content = result.get('content', '')[:10000]
-                    preface.append(untrusted_context_message(
-                        f"web page: {url}",
+                    preface.append(
                         f"Content from {url}:\n\n{content}",
-                    ))
+                    )
 
         # Skills index — progressive disclosure. Only injected when the
         # model has the `manage_skills` tool available (agent_mode), and
@@ -324,6 +316,6 @@ class ChatProcessor:
                     for s in sorted(by_cat[cat], key=lambda x: x["name"]):
                         desc = s.get("description") or ""
                         lines.append(f"    - {s['name']}: {desc}" if desc else f"    - {s['name']}")
-                preface.append(untrusted_context_message("available skills index", "\n".join(lines)))
+                preface.append("\n".join(lines))
 
         return preface, rag_sources, web_sources

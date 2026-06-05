@@ -1336,6 +1336,7 @@ function initializeEventListeners() {
         deep_research:   ['research-toggle-btn', 'tool-research-btn', 'overflow-research-btn', 'rail-research'],
         document_editor: ['overflow-doc-btn', 'rail-documents'],
         gallery:         ['tool-gallery-btn', 'rail-gallery'],
+        thinking:         ['thinking-toggle-btn'],
       };
       Object.entries(map).forEach(([key, ids]) => {
         if (features[key] === false) {
@@ -1686,6 +1687,7 @@ function initializeEventListeners() {
   }
   setupToggle('web-toggle-btn', 'web-toggle', 'web');
   setupToggle('bash-toggle-btn', 'bash-toggle', 'bash');
+  setupToggle('thinking-toggle-btn', 'thinking-toggle', 'thinking');
 
   // Document editor toggle (special: uses module panel, not a checkbox)
   const overflowDocBtn = el('overflow-doc-btn');
@@ -1965,7 +1967,7 @@ function initializeEventListeners() {
     if (!inputLeft || !overflowMenu || !overflowWrapper) return;
 
     // Buttons that can be collapsed (in reverse priority — last collapsed first)
-    const collapsibleIds = ['bash-toggle-btn', 'web-toggle-btn'];
+    const collapsibleIds = ['bash-toggle-btn', 'web-toggle-btn', 'thinking-toggle-btn'];
     const collapsibleBtns = collapsibleIds.map(id => el(id)).filter(Boolean);
     // Map of toolbar btn id → overflow mirror element (created dynamically)
     const overflowMirrors = new Map();
@@ -2300,9 +2302,9 @@ function initializeEventListeners() {
         // IMPORTANT: don't overwrite the user's persisted per-mode tool prefs
         // (`web_agent`, `bash_agent`, `web_chat`, `bash_chat`). Nobody mode is
         // ephemeral — their agent-mode defaults must come back on toggle-off.
-        const _offIds = ['web-toggle', 'bash-toggle', 'research-toggle'];
+        const _offIds = ['web-toggle', 'bash-toggle', 'research-toggle', 'thinking-toggle'];
         _offIds.forEach(id => { const c = el(id); if (c) c.checked = false; });
-        ['web-toggle-btn', 'bash-toggle-btn'].forEach(id => { const b = el(id); if (b) b.classList.remove('active'); });
+        ['web-toggle-btn', 'bash-toggle-btn', 'thinking-toggle-btn'].forEach(id => { const b = el(id); if (b) b.classList.remove('active'); });
         const _ab = el('mode-agent-btn'), _cb = el('mode-chat-btn');
         if (_ab) _ab.classList.remove('active');
         if (_cb) _cb.classList.add('active');
@@ -2402,6 +2404,7 @@ function initializeEventListeners() {
     'welcome-text':        '.welcome-name, .welcome-sub, #welcome-tip',
     'incognito-btn':       '.incognito-btn',
     'web-toggle-btn':      '#web-toggle-btn',
+    'thinking-toggle-btn': '#thinking-toggle-btn',
     'doc-toggle-btn':      '#overflow-doc-btn',
     'rag-toggle-btn':      '#overflow-rag-btn',
     'bash-toggle-btn':     '#bash-toggle-btn',
