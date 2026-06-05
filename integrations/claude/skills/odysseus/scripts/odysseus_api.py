@@ -57,21 +57,6 @@ def main() -> int:
             body = json.dumps({"action": "add", "title": " ".join(sys.argv[3:])})
         else:
             return _usage()
-    elif command == "emails":
-        if len(sys.argv) < 3:
-            return _usage()
-        action = sys.argv[2].lower()
-        if action == "list":
-            method = "GET"
-            limit = sys.argv[3] if len(sys.argv) >= 4 else "10"
-            path = f"/api/codex/emails?folder=INBOX&limit={limit}&offset=0&filter=all"
-            body = None
-        elif action == "read" and len(sys.argv) >= 4:
-            method = "GET"
-            path = f"/api/codex/emails/{sys.argv[3]}"
-            body = None
-        else:
-            return _usage()
     else:
         if len(sys.argv) < 3:
             return _usage()

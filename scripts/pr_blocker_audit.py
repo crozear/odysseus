@@ -42,7 +42,6 @@ AREA_RULES = [
         ("agent", "tool", "function", "mcp"),
     ),
     ("Cookbook / runners", ("cookbook", "runner", "preset"), ("cookbook", "runner", "preset")),
-    ("Email / CalDAV", ("mail", "email", "imap", "caldav", "calendar"), ("email", "mail", "caldav", "calendar")),
     (
         "Documents / uploads",
         ("document", "upload", "attachment", "processor", "markitdown"),
@@ -371,7 +370,7 @@ def title_strongly_indicates_docs_tooling(title: str) -> bool:
     )
     return any(phrase in title for phrase in phrases) or bool(
         words_set & {"docs", "documentation", "readme", "tests", "tooling", "scripts"}
-    ) and not bool(words_set & {"api", "auth", "route", "runtime", "server", "ui", "memory", "model", "email"})
+    ) and not bool(words_set & {"api", "auth", "route", "runtime", "server", "ui", "memory", "model"})
 
 
 def title_has_keyword(title: str, keyword: str) -> bool:

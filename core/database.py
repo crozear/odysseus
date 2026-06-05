@@ -207,13 +207,6 @@ class Document(TimestampMixin, Base):
     # Library + search. Owning the row directly is robust against that.
     owner           = Column(String, nullable=True, index=True)
     tidy_verdict    = Column(String, nullable=True)        # "keep", "junk", or None (not yet reviewed)
-    # Provenance: if this document was created by opening an email attachment,
-    # these point back to the source email so the "Sign and reply" flow can
-    # thread a response on the original conversation.
-    source_email_uid         = Column(String, nullable=True)
-    source_email_folder      = Column(String, nullable=True)
-    source_email_account_id  = Column(String, nullable=True)
-    source_email_message_id  = Column(String, nullable=True, index=True)
 
     session  = relationship("Session", backref=backref("documents", cascade="save-update, merge"))
     versions = relationship("DocumentVersion", back_populates="document",
@@ -286,46 +279,6 @@ class GalleryImage(TimestampMixin, Base):
         Index('ix_gallery_images_tags', 'tags'),
         Index('ix_gallery_images_model', 'model'),
         Index('ix_gallery_images_active', 'is_active', 'created_at'),
-    )
-
-
-class EmailAccount(TimestampMixin, Base):
-    """A configured IMAP/SMTP account. Supports multiple accounts per user —
-    exactly one row per owner has is_default=True.
-
-    Security note: imap_password / smtp_password are stored Fernet-encrypted
-    via src/secret_storage.py. The key lives at data/.app_key (mode 0o600,
-    gitignored). Anyone with read access to that file can decrypt every
-    row, so the threat model is "stolen SQLite backup" rather than
-    "process compromise". On first start any legacy plaintext rows are
-    migrated automatically (see _migrate_encrypt_email_passwords).
-    """
-    __tablename__ = "email_accounts"
-
-    id             = Column(String, primary_key=True, index=True)
-    owner          = Column(String, nullable=True, index=True)
-    name           = Column(String, nullable=False)  # Display name: "Work", "Personal", etc.
-    is_default     = Column(Boolean, default=False, nullable=False)
-    enabled        = Column(Boolean, default=True, nullable=False)
-
-    # IMAP (receiving)
-    imap_host      = Column(String, default="")
-    imap_port      = Column(Integer, default=993)
-    imap_user      = Column(String, default="")
-    imap_password  = Column(String, default="")
-    imap_starttls  = Column(Boolean, default=True)
-
-    # SMTP (sending)
-    smtp_host      = Column(String, default="")
-    smtp_port      = Column(Integer, default=465)
-    smtp_security  = Column(String, default="ssl")  # ssl | starttls | none
-    smtp_user      = Column(String, default="")
-    smtp_password  = Column(String, default="")
-
-    from_address   = Column(String, default="")
-
-    __table_args__ = (
-        Index('ix_email_accounts_owner_default', 'owner', 'is_default'),
     )
 
 
@@ -406,7 +359,7 @@ class Comparison(TimestampMixin, Base):
 class Signature(TimestampMixin, Base):
     """User-saved visual signatures (image stamps).
 
-    Reusable across PDF form filling, email composition, and document editing.
+    Reusable across PDF form filling and document editing.
     `data_png` is a base64-encoded PNG (no `data:` prefix). The SVG vector
     column is reserved for future smooth vector storage. Both are stored
     Fernet-encrypted at rest (see EncryptedText / src.secret_storage); a
@@ -556,7 +509,6 @@ class ScheduledTask(TimestampMixin, Base):
     # drop the ForeignKey so SQLAlchemy table sort doesn't fail on flush.
     character_id   = Column(String, nullable=True)
     max_steps      = Column(Integer, nullable=True)       # max agent loop iterations (null=unlimited)
-    email_results  = Column(Boolean, default=True)        # email results to character.email_to
     notifications_enabled = Column(Boolean, default=True) # per-task on/off for completion notifications
 
     session = relationship("Session", backref=backref("scheduled_tasks", cascade="save-update, merge"))
@@ -912,33 +864,6 @@ def _migrate_add_pinned_models_column():
     except Exception as e:
         logging.getLogger(__name__).warning(f"pinned_models migration failed: {e}")
 
-def _migrate_add_notes_sort_order():
-    """Add sort_order, image_url, repeat columns to notes if they don't exist."""
-    import sqlite3
-    db_path = DATABASE_URL.replace("sqlite:///", "")
-    if not os.path.exists(db_path):
-        return
-    try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.execute("PRAGMA table_info(notes)")
-        columns = [row[1] for row in cursor.fetchall()]
-        if columns and "sort_order" not in columns:
-            conn.execute("ALTER TABLE notes ADD COLUMN sort_order INTEGER DEFAULT 0")
-        if columns and "image_url" not in columns:
-            conn.execute("ALTER TABLE notes ADD COLUMN image_url TEXT")
-        if columns and "repeat" not in columns:
-            conn.execute("ALTER TABLE notes ADD COLUMN repeat TEXT DEFAULT 'none'")
-        if columns and "ai_classification" not in columns:
-            conn.execute("ALTER TABLE notes ADD COLUMN ai_classification TEXT")
-        if columns and "ai_content_hash" not in columns:
-            conn.execute("ALTER TABLE notes ADD COLUMN ai_content_hash TEXT")
-        if columns and "agent_session_id" not in columns:
-            conn.execute("ALTER TABLE notes ADD COLUMN agent_session_id TEXT")
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        logging.getLogger(__name__).warning(f"notes migration failed: {e}")
-
 def _migrate_add_mode_column():
     """Add mode column to sessions table if it doesn't exist."""
     import sqlite3
@@ -1095,8 +1020,7 @@ def _migrate_assign_legacy_owner():
         # exists; the explicit list documents intent.
         tables = [
             "sessions", "memories", "gallery_images", "user_tools",
-            "comparisons", "documents", "signatures", "notes",
-            "calendars", "calendar_events", "integrations",
+            "comparisons", "documents", "signatures",
             "scheduled_tasks", "task_runs", "crew_members",
             "gallery_albums", "gallery_people", "user_tool_data",
             "api_tokens", "webhooks",
@@ -1189,30 +1113,6 @@ def _migrate_add_tidy_verdict():
     except Exception as e:
         logging.getLogger(__name__).warning(f"tidy_verdict migration: {e}")
 
-
-def _migrate_add_doc_source_email_cols():
-    """Add source-email provenance columns to documents (for the Sign-and-Reply flow)."""
-    cols_to_add = {
-        "source_email_uid":        "VARCHAR",
-        "source_email_folder":     "VARCHAR",
-        "source_email_account_id": "VARCHAR",
-        "source_email_message_id": "VARCHAR",
-    }
-    try:
-        with engine.connect() as conn:
-            existing = {r[1] for r in conn.execute(text("PRAGMA table_info(documents)"))}
-            for col, spec in cols_to_add.items():
-                if col not in existing:
-                    conn.execute(text(f"ALTER TABLE documents ADD COLUMN {col} {spec}"))
-                    logging.getLogger(__name__).info(f"Added {col} column to documents")
-            # Index for lookup-by-message-id (the "find existing draft" path)
-            conn.execute(text(
-                "CREATE INDEX IF NOT EXISTS ix_documents_source_email_message_id "
-                "ON documents (source_email_message_id)"
-            ))
-            conn.commit()
-    except Exception as e:
-        logging.getLogger(__name__).warning(f"doc source-email migration: {e}")
 
 def _migrate_add_task_automation_columns():
     """Add automation columns to scheduled_tasks table if missing."""
@@ -1402,156 +1302,6 @@ def _migrate_add_assistant_columns():
 
 
 
-class Note(TimestampMixin, Base):
-    """A Google Keep-style note or checklist."""
-    __tablename__ = "notes"
-
-    id         = Column(String, primary_key=True, index=True)
-    owner      = Column(String, nullable=True, index=True)
-    title      = Column(String, default="")
-    content    = Column(Text, nullable=True)
-    items      = Column(Text, nullable=True)       # JSON string of [{text, done}]
-    note_type  = Column(String, default="note")     # "note" or "checklist"
-    color      = Column(String, nullable=True)
-    label      = Column(String, nullable=True)
-    pinned     = Column(Boolean, default=False)
-    archived   = Column(Boolean, default=False)
-    due_date   = Column(String, nullable=True)
-    source     = Column(String, default="user")     # "user" or "agent"
-    session_id = Column(String, nullable=True)
-    sort_order = Column(Integer, default=0)
-    image_url  = Column(String, nullable=True)      # uploaded image URL (relative path)
-    repeat     = Column(String, default="none")     # none, daily, weekly, monthly, yearly
-    # Auto-AI fields — populated by /api/notes/{id}/classify. The classification
-    # JSON shape is { kind, solvable, confidence, task_prompt, tools, items?: [...] }.
-    # Content hash gates re-classification (avoid LLM spend on every save).
-    ai_classification = Column(Text, nullable=True)
-    ai_content_hash   = Column(String, nullable=True)
-    # Chat session spawned by the note's "Agent" button (solve-this-todo).
-    # The note shows a clickable tag that opens this session for review.
-    agent_session_id  = Column(String, nullable=True)
-
-
-class CalendarCal(TimestampMixin, Base):
-    """A calendar (e.g. 'Personal', 'TimeTree')."""
-    __tablename__ = "calendars"
-
-    id    = Column(String, primary_key=True, index=True)
-    owner = Column(String, nullable=True, index=True)
-    name  = Column(String, nullable=False)
-    color = Column(String, default="#5b8abf")
-    source = Column(String, default="local")  # "local" or "timetree"
-
-    events = relationship("CalendarEvent", back_populates="calendar", cascade="all, delete-orphan")
-
-
-class CalendarEvent(TimestampMixin, Base):
-    """A calendar event."""
-    __tablename__ = "calendar_events"
-
-    uid         = Column(String, primary_key=True, index=True)
-    calendar_id = Column(String, ForeignKey("calendars.id"), nullable=False, index=True)
-    summary     = Column(String, nullable=False, default="")
-    description = Column(Text, default="")
-    location    = Column(String, default="")
-    dtstart     = Column(DateTime, nullable=False, index=True)
-    dtend       = Column(DateTime, nullable=False)
-    all_day     = Column(Boolean, default=False)
-    # True when dtstart/dtend are stored as UTC instants (set on import paths
-    # that preserve the source TZID). False = legacy naive-local. Drives the
-    # `Z`-suffix on serialization so the frontend interprets correctly.
-    is_utc      = Column(Boolean, default=False, nullable=False)
-    rrule       = Column(String, default="")
-    color       = Column(String, nullable=True)  # per-event color override
-    status      = Column(String, default="confirmed")  # confirmed, cancelled
-    importance  = Column(String, default="normal")    # low | normal | high | critical
-    event_type  = Column(String, nullable=True)        # work | personal | health | travel | meal | social | admin | other
-    last_pinged = Column(DateTime, nullable=True)      # last time the assistant pinged about this event
-
-    calendar = relationship("CalendarCal", back_populates="events")
-
-
-class Integration(TimestampMixin, Base):
-    """An external service connection (email, RSS, webhook, etc.)."""
-    __tablename__ = "integrations"
-
-    id     = Column(String, primary_key=True, index=True)
-    owner  = Column(String, nullable=True, index=True)
-    name   = Column(String, nullable=False)
-    type   = Column(String, nullable=False)  # "email", "rss", "webhook"
-    config = Column(JSON, nullable=True)     # type-specific config
-    enabled = Column(Boolean, default=True)
-
-
-
-
-
-def _migrate_seed_email_account():
-    """If email_accounts is empty and settings.json has legacy flat imap_host/smtp_host
-    keys, create a single default account from them so nothing breaks for users who
-    upgraded. Safe to run repeatedly — it short-circuits once any row exists."""
-    try:
-        with engine.connect() as conn:
-            tables = [r[0] for r in conn.execute(text(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='email_accounts'"
-            ))]
-            if "email_accounts" not in tables:
-                return
-            existing = conn.execute(text("SELECT COUNT(*) FROM email_accounts")).scalar() or 0
-            if existing > 0:
-                return
-
-        import json as _json
-        import uuid as _uuid
-        from pathlib import Path
-        settings_file = Path("data/settings.json")
-        if not settings_file.exists():
-            return
-        try:
-            s = _json.loads(settings_file.read_text(encoding="utf-8"))
-        except Exception:
-            return
-
-        imap_host = (s.get("imap_host") or "").strip()
-        smtp_host = (s.get("smtp_host") or "").strip()
-        if not imap_host and not smtp_host:
-            return  # nothing to migrate
-
-        now = utcnow_naive()
-        with engine.begin() as conn:
-            conn.execute(text("""
-                INSERT INTO email_accounts
-                  (id, owner, name, is_default, enabled,
-                   imap_host, imap_port, imap_user, imap_password, imap_starttls,
-                   smtp_host, smtp_port, smtp_user, smtp_password,
-                   from_address, created_at, updated_at)
-                VALUES
-                  (:id, :owner, :name, :is_default, :enabled,
-                   :imap_host, :imap_port, :imap_user, :imap_password, :imap_starttls,
-                   :smtp_host, :smtp_port, :smtp_user, :smtp_password,
-                   :from_address, :created_at, :updated_at)
-            """), {
-                "id": _uuid.uuid4().hex,
-                "owner": None,
-                "name": "Default",
-                "is_default": True,
-                "enabled": True,
-                "imap_host": imap_host,
-                "imap_port": int(s.get("imap_port") or 993),
-                "imap_user": s.get("imap_user") or "",
-                "imap_password": s.get("imap_password") or "",
-                "imap_starttls": bool(s.get("imap_starttls", True)),
-                "smtp_host": smtp_host,
-                "smtp_port": int(s.get("smtp_port") or 465),
-                "smtp_user": s.get("smtp_user") or "",
-                "smtp_password": s.get("smtp_password") or "",
-                "from_address": s.get("email_from") or "",
-                "created_at": now,
-                "updated_at": now,
-            })
-            logging.getLogger(__name__).info("Seeded email_accounts 'Default' from settings.json")
-    except Exception as e:
-        logging.getLogger(__name__).warning(f"seed email account migration: {e}")
 
 
 # WARNING: Foreign-key enforcement is enabled globally for all SQLite connections.
@@ -1568,7 +1318,6 @@ def init_db():
     _migrate_add_hidden_models_column()
     _migrate_add_cached_models_column()
     _migrate_add_pinned_models_column()
-    _migrate_add_notes_sort_order()
     _migrate_add_model_type_column()
     _migrate_add_model_endpoint_refresh_columns()
     _migrate_add_model_endpoint_owner_column()
@@ -1585,7 +1334,6 @@ def init_db():
     _migrate_backfill_document_owner_from_session()
     _migrate_assign_legacy_owner()
     _migrate_add_tidy_verdict()
-    _migrate_add_doc_source_email_cols()
     _migrate_add_oauth_config()
     _migrate_add_task_automation_columns()
     _migrate_add_disabled_tools()
@@ -1594,39 +1342,8 @@ def init_db():
     _migrate_drop_ping_notes_tasks()
     _migrate_add_crew_member_id()
     _migrate_add_assistant_columns()
-    _migrate_add_email_smtp_security()
-    _migrate_seed_email_account()
-    _migrate_add_calendar_metadata()
-    _migrate_add_calendar_is_utc()
-    _migrate_encrypt_email_passwords()
     _migrate_encrypt_signatures()
     _migrate_encrypt_endpoint_keys()
-
-
-def _migrate_add_email_smtp_security():
-    """Add explicit SMTP security mode for Proton Bridge/custom local SMTP."""
-    import sqlite3
-    db_path = DATABASE_URL.replace("sqlite:///", "")
-    if not os.path.exists(db_path):
-        return
-    try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.execute("PRAGMA table_info(email_accounts)")
-        columns = [row[1] for row in cursor.fetchall()]
-        if columns and "smtp_security" not in columns:
-            conn.execute("ALTER TABLE email_accounts ADD COLUMN smtp_security TEXT DEFAULT 'ssl'")
-            conn.execute(
-                "UPDATE email_accounts SET smtp_security = CASE "
-                "WHEN COALESCE(smtp_port, 465) = 587 THEN 'starttls' "
-                "WHEN COALESCE(smtp_port, 465) = 465 THEN 'ssl' "
-                "ELSE 'ssl' END "
-                "WHERE smtp_security IS NULL OR smtp_security = ''"
-            )
-            conn.commit()
-            logging.getLogger(__name__).info("Migrated: added smtp_security column to email_accounts")
-        conn.close()
-    except Exception as e:
-        logging.getLogger(__name__).warning(f"smtp_security migration skipped: {e}")
 
 
 def _migrate_encrypt_endpoint_keys():
@@ -1684,82 +1401,6 @@ def _migrate_encrypt_signatures():
     except Exception as e:
         logger.warning(f"Signature encryption migration skipped: {e}")
 
-
-def _migrate_encrypt_email_passwords():
-    """Encrypt any plaintext IMAP/SMTP passwords still in the email_accounts
-    table. Idempotent — rows already prefixed with `enc:` are skipped.
-    Safe to run on every startup."""
-    try:
-        from src.secret_storage import encrypt, is_encrypted
-    except Exception as e:
-        logger.warning(f"secret_storage import failed; skipping password migration: {e}")
-        return
-    try:
-        with engine.connect() as conn:
-            rows = conn.execute(text(
-                "SELECT id, imap_password, smtp_password FROM email_accounts"
-            )).fetchall()
-            migrated = 0
-            for row in rows:
-                rid, imap_pw, smtp_pw = row
-                updates = {}
-                if imap_pw and not is_encrypted(imap_pw):
-                    updates["imap_password"] = encrypt(imap_pw)
-                if smtp_pw and not is_encrypted(smtp_pw):
-                    updates["smtp_password"] = encrypt(smtp_pw)
-                if updates:
-                    sets = ", ".join(f"{k} = :{k}" for k in updates)
-                    params = {**updates, "id": rid}
-                    conn.execute(text(f"UPDATE email_accounts SET {sets} WHERE id = :id"), params)
-                    migrated += 1
-            if migrated:
-                conn.commit()
-                logger.info(f"Encrypted plaintext passwords on {migrated} email account row(s)")
-    except Exception as e:
-        logger.warning(f"Password migration failed (will retry next start): {e}")
-
-
-def _migrate_add_calendar_is_utc():
-    """Add is_utc column to calendar_events so imported events can preserve
-    their original UTC timestamps (Z-suffix on the wire) without touching
-    legacy naive-local rows."""
-    import sqlite3
-    db_path = DATABASE_URL.replace("sqlite:///", "")
-    if not os.path.exists(db_path):
-        return
-    try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.execute("PRAGMA table_info(calendar_events)")
-        columns = [row[1] for row in cursor.fetchall()]
-        if columns and "is_utc" not in columns:
-            conn.execute("ALTER TABLE calendar_events ADD COLUMN is_utc BOOLEAN DEFAULT 0 NOT NULL")
-            conn.commit()
-            logging.getLogger(__name__).info("Migrated: added 'is_utc' column to calendar_events")
-        conn.close()
-    except Exception as e:
-        logging.getLogger(__name__).warning(f"is_utc migration failed: {e}")
-
-
-def _migrate_add_calendar_metadata():
-    """Add importance/event_type/last_pinged columns to calendar_events table."""
-    import sqlite3
-    db_path = DATABASE_URL.replace("sqlite:///", "")
-    if not os.path.exists(db_path):
-        return
-    try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.execute("PRAGMA table_info(calendar_events)")
-        columns = [row[1] for row in cursor.fetchall()]
-        if columns and "importance" not in columns:
-            conn.execute("ALTER TABLE calendar_events ADD COLUMN importance TEXT DEFAULT 'normal'")
-        if columns and "event_type" not in columns:
-            conn.execute("ALTER TABLE calendar_events ADD COLUMN event_type TEXT")
-        if columns and "last_pinged" not in columns:
-            conn.execute("ALTER TABLE calendar_events ADD COLUMN last_pinged DATETIME")
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        logging.getLogger(__name__).warning(f"calendar_events migration failed: {e}")
 
 def get_db():
     """
@@ -1890,32 +1531,6 @@ def get_session_by_id(session_id: str):
     """Get a session by ID"""
     with get_db_session() as db:
         return db.query(Session).filter(Session.id == session_id).first()
-
-def get_upcoming_events(owner, horizon_days: int = 60, limit: int = 40):
-    """Upcoming, non-cancelled events as {uid, title, start} dicts, soonest first.
-
-    owner=None means NO owner scoping (single-user / legacy). Multi-user callers
-    MUST pass the owning username — otherwise they read every tenant's events.
-    The autonomous email->calendar pass relies on this to avoid disclosing (and
-    acting on) other users' calendars."""
-    from datetime import timedelta
-    now = utcnow_naive()
-    with get_db_session() as db:
-        q = db.query(CalendarEvent).join(CalendarCal).filter(
-            CalendarEvent.dtstart >= now,
-            CalendarEvent.dtstart <= now + timedelta(days=horizon_days),
-            CalendarEvent.status != "cancelled",
-        )
-        if owner is not None:
-            q = q.filter(CalendarCal.owner == owner)
-        return [
-            {
-                "uid": e.uid,
-                "title": e.summary or "",
-                "start": e.dtstart.isoformat() if e.dtstart else "",
-            }
-            for e in q.order_by(CalendarEvent.dtstart).limit(limit).all()
-        ]
 
 def archive_session(session_id: str):
     """Archive a session"""

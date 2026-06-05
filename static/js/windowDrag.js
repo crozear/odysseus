@@ -1,6 +1,6 @@
 // Shared window-drag helper. Replaces the duplicated mousedown / mousemove
 // / mouseup + snap-to-top fullscreen + left/right edge dock patterns that
-// were copy-pasted across calendar.js, tasks.js, gallery.js, emailLibrary.js,
+// were copy-pasted across tasks.js, gallery.js,
 // documentLibrary.js, theme.js. Behavior stays identical to the old per-file
 // copies — each callsite provides its own enter/exit-fullscreen callbacks
 // since the CSS class + inline styles differ per modal.
@@ -94,7 +94,7 @@ export function makeWindowDraggable(modal, options = {}) {
 
   const rightDock = enableDock ? makeEdgeDockController(modal, 'right') : null;
   // Left dock is opt-in (enableLeftDock). For most windows it's off — the
-  // sidebar lives on the left, so a left dock collides with it. The email
+  // sidebar lives on the left, so a left dock collides with it. A left-docked
   // window enables it so you can park the message on the left and read it
   // while replying in the document on the right.
   const leftDock = (enableDock && options.enableLeftDock) ? makeEdgeDockController(modal, 'left') : null;

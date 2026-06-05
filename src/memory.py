@@ -267,8 +267,8 @@ class MemoryManager:
             text_lower = mem["text"].lower()
             
             # Contact info
-            if any(word in text_lower for word in ["phone", "email", "address", "lives", "works"]):
-                if any(word in msg_lower for word in ["contact", "phone", "address", "email"]):
+            if any(word in text_lower for word in ["phone", "address", "lives", "works"]):
+                if any(word in msg_lower for word in ["contact", "phone", "address"]):
                     categories["contacts"].append(mem)
             
             # Personal preferences
@@ -295,7 +295,7 @@ class MemoryManager:
             
         # Define keyword categories for semantic matching
         identity_words = ["name", "who", "i", "am", "called", "identity", "myself", "me", "my"]
-        contact_words = ["phone", "email", "address", "contact", "number", "where", "located", "reach"]
+        contact_words = ["phone", "address", "contact", "number", "where", "located", "reach"]
         preference_words = ["like", "prefer", "favorite", "want", "love", "hate", "dislike", "enjoy", "interested"]
         task_words = ["todo", "task", "remind", "meeting", "appointment", "schedule", "deadline"]
         fact_words = ["what", "when", "where", "how", "why", "explain", "describe", "information", "know"]

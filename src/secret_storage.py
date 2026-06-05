@@ -2,7 +2,7 @@
 secret_storage.py
 
 Fernet-based symmetric encryption for secrets stored in the SQLite DB
-(IMAP / SMTP passwords today; safe to extend). The key lives at
+(service passwords and API tokens today; safe to extend). The key lives at
 `data/.app_key`, mode 0o600, generated on first call. `data/` is
 gitignored so the key never ships with the repo.
 

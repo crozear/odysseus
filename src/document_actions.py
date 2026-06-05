@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 _JUNK_TITLES = {
     "untitled", "untitled document", "new document", "document",
-    "new email", "new mail", "new message", "reply", "fwd", "re:",
+    "new message", "reply", "fwd", "re:",
     "test", "testing", "asdf", "asd", "foo", "bar", "baz",
     "tmp", "temp", "scratch", "scratchpad", "draft", "delete",
     "remove", "junk", "trash", "xxx", "abc", "qwerty",
@@ -56,7 +56,7 @@ async def run_document_tidy(owner: str) -> str:
     Conservative rules (no length-based deletion — short notes are valid):
     - Empty / whitespace-only / placeholder ("# Untitled")
     - Title is a throwaway name (test, asdf, …) or the content itself is one
-    - Email reply-chain with no original content
+    - Quoted reply-chain with no original content
     - Duplicates: docs sharing the same normalized title AND the same content
       fingerprint (ignoring volatile upload/annotation ids). The most complete
       copy (longest real content, then most recent) is kept; the rest deleted.
@@ -88,7 +88,7 @@ async def run_document_tidy(owner: str) -> str:
             stripped = re.sub(r"\s+", " ", stripped).strip()
             real_len = len(stripped)
 
-            # Detect emails-saved-as-documents (quote chains with no original content)
+            # Detect quote-chains-saved-as-documents (no original content)
             lines = [ln for ln in content.split("\n") if ln.strip()]
             quoted_lines = [ln for ln in lines if ln.lstrip().startswith(">")]
             header_lines = [ln for ln in lines if re.match(r"^On .+ wrote:?\s*$", ln.strip())]
@@ -114,9 +114,9 @@ async def run_document_tidy(owner: str) -> str:
                 reason = "throwaway content"
             # No length-based deletion: short notes are legitimate content.
             elif (quoted_lines or header_lines) and len(non_quote_content) < 50 and quote_ratio > 0.4:
-                # Email reply chain with no original content
+                # Quoted reply chain with no original content
                 should_delete = True
-                reason = "email quote-chain only"
+                reason = "quote-chain only"
 
             if should_delete:
                 if len(deleted_examples) < 5:

@@ -403,7 +403,7 @@ function _openSkillMenu(btn, card, sk, name, isPublished) {
   mk(_ICON.del, 'Delete', { danger: true }, () => _deleteSkill(name, card));
 
   // Select — enters bulk-select mode and pre-selects this skill. Same pattern
-  // as the email/documents/brain Select item, with the email bullet icon.
+  // as the documents/brain Select item, with the bullet icon.
   const selItem = document.createElement('button');
   selItem.className = 'skill-kebab-item';
   selItem.innerHTML = '<span style="display:inline-flex;width:14px;height:14px;align-items:center;justify-content:center;"><span style="font-size:16px;line-height:1;">●</span></span><span>Select</span>';
@@ -416,7 +416,7 @@ function _openSkillMenu(btn, card, sk, name, isPublished) {
   });
   menu.appendChild(selItem);
 
-  // Mobile-only Cancel — mirrors the email/documents/brain popup pattern.
+  // Mobile-only Cancel — mirrors the documents/brain popup pattern.
   // CSS hides `.dropdown-cancel-mobile` on desktop where outside-click
   // already dismisses cleanly.
   const cancelItem = document.createElement('button');

@@ -49,12 +49,6 @@ def _doc_to_dict(doc: Document) -> Dict[str, Any]:
         "archived": bool(getattr(doc, "archived", False)),
         "created_at": (doc.created_at.isoformat() + "Z") if doc.created_at else None,
         "updated_at": (doc.updated_at.isoformat() + "Z") if doc.updated_at else None,
-        # Source-email provenance (set when doc was created from an email
-        # attachment) — drives the "Send signed reply" menu item.
-        "source_email_uid":        getattr(doc, "source_email_uid", None),
-        "source_email_folder":     getattr(doc, "source_email_folder", None),
-        "source_email_account_id": getattr(doc, "source_email_account_id", None),
-        "source_email_message_id": getattr(doc, "source_email_message_id", None),
     }
 
 def _version_to_dict(v: DocumentVersion) -> Dict[str, Any]:

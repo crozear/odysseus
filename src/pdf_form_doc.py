@@ -127,7 +127,7 @@ def _decode_name(enc: str) -> str:
     import urllib.parse
     return urllib.parse.unquote(enc or "")
 # Label segment is non-greedy (.+?) so labels containing '*' — the near-universal
-# required-field marker, e.g. "Email *" — are tolerated, while still splitting at
+# required-field marker, e.g. "Full Name *" — are tolerated, while still splitting at
 # the FIRST ':**' / '**[' so a value that itself contains ':**' is preserved.
 # (The old [^*]+ refused to match any label with an asterisk and silently
 # dropped that field's value on export.)

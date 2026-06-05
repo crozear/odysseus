@@ -178,33 +178,6 @@ async function _fetchActions() {
   return _builtinActions;
 }
 
-let _urgentEmailSettings = null;
-async function _fetchUrgentEmailSettings() {
-  if (_urgentEmailSettings) return _urgentEmailSettings;
-  try {
-    const res = await fetch('/api/auth/settings', { credentials: 'same-origin' });
-    _urgentEmailSettings = await res.json();
-  } catch (e) {
-    _urgentEmailSettings = { urgent_email_prompt: '' };
-  }
-  return _urgentEmailSettings;
-}
-
-async function _saveUrgentEmailSettings(prompt) {
-  _urgentEmailSettings = {
-    ...(_urgentEmailSettings || {}),
-    urgent_email_prompt: prompt || '',
-  };
-  await fetch('/api/auth/settings', {
-    method: 'POST',
-    credentials: 'same-origin',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      urgent_email_prompt: prompt || '',
-    }),
-  });
-}
-
 let _triggerEvents = null;
 async function _fetchEvents() {
   if (_triggerEvents) return _triggerEvents;
@@ -320,15 +293,7 @@ const _TASK_ICONS = {
   consolidate_memory:  '<path d="M12 2a4 4 0 0 0-4 4v2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2h-2V6a4 4 0 0 0-4-4z"/>',
   // Research (magnifying glass)
   tidy_research:       '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
-  // Calendar
-  tidy_calendar:       '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
-  // Email
-  summarize_emails:    '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>',
-  draft_email_replies: '<polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/>',
-  extract_email_events:'<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="M7 14h5"/><path d="M7 18h8"/>',
   classify_events:    '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="M8 15h.01M12 15h.01M16 15h.01"/>',
-  learn_sender_signatures:'<path d="M20 6 9 17l-5-5"/><path d="M14 6h6v6"/>',
-  check_email_urgency: '<path d="M13.73 21a2 2 0 0 1-3.46 0"/><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/>',
   // Skills
   test_skills:         '<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>',
   audit_skills:        '<path d="M9 11l3 3L22 4"/><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v15H6.5A2.5 2.5 0 0 0 4 19.5z"/>',
@@ -350,12 +315,7 @@ function _taskIcon(task) {
 }
 
 const _MODEL_BACKED_ACTIONS = new Set([
-  'summarize_emails',
-  'draft_email_replies',
-  'extract_email_events',
   'classify_events',
-  'learn_sender_signatures',
-  'check_email_urgency',
   'test_skills',
   'audit_skills',
   'consolidate_memory',
@@ -490,25 +450,14 @@ const _CATEGORY_MAP = {
   tidy_documents:       'Documents',
   consolidate_memory:   'Memory',
   tidy_research:        'Research',
-  tidy_calendar:        'Calendar',
-  classify_events:      'Calendar',
-  ping_events:          'Calendar',
-  extract_email_events: 'Calendar',
-  summarize_emails:           'Email',
-  draft_email_replies:        'Email',
-  learn_sender_signatures:    'Email',
-  check_email_urgency:        'Email',
-  daily_brief:                'Assistant',
   test_skills:                'Skills',
   audit_skills:               'Skills',
   ssh_command:          'System',
   run_script:           'System',
   run_local:            'System',
 };
-const _CATEGORY_ORDER = ['Other', 'Calendar', 'Email', 'Chats', 'Documents', 'Memory', 'Research', 'Skills', 'Assistant', 'System'];
+const _CATEGORY_ORDER = ['Other', 'Chats', 'Documents', 'Memory', 'Research', 'Skills', 'Assistant', 'System'];
 const _CATEGORY_ICONS = {
-  Calendar:  '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
-  Email:     '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>',
   Chats:     '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
   Documents: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>',
   Memory:    '<path d="M12 2a4 4 0 0 0-4 4v2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2h-2V6a4 4 0 0 0-4-4z"/>',
@@ -600,18 +549,6 @@ function _renderTaskChips() {
   };
   mkChip(`all (${_tasks.length})`, null, !_taskFilter);
   for (const c of cats) mkChip(`${c} (${counts[c]})`, c, _taskFilter === c);
-}
-
-const _TASK_CACHE_LABELS = {
-  summarize_emails: 'email summaries',
-  draft_email_replies: 'AI reply drafts',
-  extract_email_events: 'email calendar cache',
-  learn_sender_signatures: 'sender signatures',
-  check_email_urgency: 'email tags',
-};
-
-function _taskClearCacheLabel(taskOrEntry) {
-  return _TASK_CACHE_LABELS[taskOrEntry?.action || ''] || '';
 }
 
 function _renderList() {
@@ -956,7 +893,7 @@ function _showPresetPicker() {
   html += '<div style="display:flex;align-items:baseline;gap:8px;margin-bottom:2px;"><h2 style="margin:0;padding:0;line-height:1;">Add Task</h2></div>';
   html += '<p class="memory-desc" style="position:relative;top:4px;">Describe a task for the AI to draft, or pick a type below to set one up manually.</p>';
   html += '<div class="task-ai-compose" style="display:flex;gap:6px;margin:6px 0 10px;">'
-    + '<input type="text" id="task-ai-input" class="memory-search-input" style="flex:1;" placeholder="Describe a task — e.g. &quot;every weekday 7am summarize my unread email&quot;" />'
+    + '<input type="text" id="task-ai-input" class="memory-search-input" style="flex:1;" placeholder="Describe a task;" />'
     + '<button class="memory-toolbar-btn active" id="task-ai-btn" title="Draft a task with AI" style="white-space:nowrap;height:28px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:-1px;margin-right:3px;"><path d="M12 0L14.59 8.41L23 12L14.59 15.59L12 24L9.41 15.59L1 12L9.41 8.41Z"/></svg>Draft with AI</button>'
     + '</div>';
   html += '<div class="memory-list" style="max-height:none;flex:1;gap:0px;margin-top:2px;padding-right:8px;">';
@@ -1082,21 +1019,10 @@ function _showForm(existing, initTaskType, initTriggerType) {
         const sel = document.getElementById('task-form-action');
         const extra = document.getElementById('task-form-action-extra');
         if (!sel || !extra) return;
-        if (sel.value !== 'check_email_urgency') {
-          extra.innerHTML = '';
-          return;
-        }
+
         extra.innerHTML = `
-          <label class="task-form-label">Email triage rules</label>
-          <textarea id="task-form-urgent-email-prompt" class="task-form-input task-form-textarea" rows="4" placeholder="What should count as urgent? e.g. deadlines, blockers, people waiting outside."></textarea>
-          <div class="memory-desc" style="font-size:11px;margin-top:4px;">Pause/resume and schedule are controlled by this task. It tags urgent, reply-soon, newsletter, marketing, and spam. Urgent/reply-soon emails use your reminder settings.</div>
+          <div class="memory-desc" style="font-size:11px;margin-top:4px;">Pause/resume and schedule are controlled by this task.</div>
         `;
-        const settings = await _fetchUrgentEmailSettings();
-        const promptEl = document.getElementById('task-form-urgent-email-prompt');
-        if (promptEl && !promptEl.dataset.loaded) {
-          promptEl.value = settings.urgent_email_prompt || '';
-          promptEl.dataset.loaded = '1';
-        }
         const notifEl = document.getElementById('task-form-notif');
         if (notifEl && !existing?.id) notifEl.checked = false;
       };
@@ -1298,7 +1224,7 @@ function _showForm(existing, initTaskType, initTriggerType) {
     if (existing?.output_target && !matchedOutput) {
       const opt = document.createElement('option');
       opt.value = existing.output_target;
-      opt.textContent = existing.output_target.includes('@') ? `Email: ${existing.output_target}` : existing.output_target;
+      opt.textContent = existing.output_target;
       opt.selected = true;
       outputSel.appendChild(opt);
     }
@@ -1433,15 +1359,6 @@ function _showForm(existing, initTaskType, initTriggerType) {
         return;
       }
       payload.action = action;
-      if (action === 'check_email_urgency') {
-        const urgentPrompt = document.getElementById('task-form-urgent-email-prompt')?.value || '';
-        try {
-          await _saveUrgentEmailSettings(urgentPrompt);
-        } catch (e) {
-          if (uiModule) uiModule.showError('Failed to save urgency rules');
-          return;
-        }
-      }
     }
 
     // Trigger specifics
@@ -1899,16 +1816,6 @@ function _stackActivityEntries(entries) {
     d.setMinutes(0, 0, 0);
     return d.toISOString();
   };
-  const normalizeResult = (entry) => {
-    const text = (entry.result || '').trim();
-    if (/^Email\b/i.test(entry.taskName || '')) {
-      if (/^skipped\s*[—-]/i.test(text) || /\bNo recent emails\b/i.test(text)) {
-        return text.replace(/\d+/g, '#');
-      }
-      return '__email_run__';
-    }
-    return text;
-  };
   for (const entry of entries) {
     const key = [
       entry.taskId || '',
@@ -1917,7 +1824,6 @@ function _stackActivityEntries(entries) {
       entry.status || '',
       entry.output_target || '',
       normalizeResult(entry),
-      /^Email\b/i.test(entry.taskName || '') ? hourBucket(entry.ts) : '',
     ].join('\u0001');
     const existing = byKey.get(key);
     if (existing && entry.status !== 'running' && entry.status !== 'queued') {
@@ -2145,11 +2051,8 @@ function _classifyResult(text) {
 // hue derived from the task name's hash, so a recurring custom task keeps
 // the same color from one run to the next.
 const _CATEGORY_HUES = [
-  { hue: 210, kw: /\b(email|inbox|mail|smtp|imap|reply|summary|spam|urgency)\b/i },     // blue   — email
   { hue: 280, kw: /\b(research|web ?search|deep[-_ ]research|sources?|investigate)\b/i },// purple — research
   { hue:  35, kw: /\b(cookbook|model[-_ ]?(serve|download)|hf|huggingface|vllm|llama|ollama)\b/i }, // amber — cookbook
-  { hue: 150, kw: /\b(calendar|event|meeting|appointment|schedule)\b/i },                // green  — calendar
-  { hue: 330, kw: /\b(reminder|note|notify|alert)\b/i },                                 // pink   — reminders
   { hue:  10, kw: /\b(check[-_ ]?in|morning|evening|daily|standup)\b/i },                // red    — check-ins
   { hue: 190, kw: /\b(memory|memories|remember|recall)\b/i },                            // teal   — memory
 ];
@@ -2172,11 +2075,8 @@ function _categoryHue(taskName, kind) {
 // Coarse category label for the activity filter chips. Mirrors the
 // hue keyword groups so the chip color matches the row stripe.
 const _CATEGORY_LABELS = [
-  { label: 'email',     kw: /\b(email|inbox|mail|smtp|imap|reply|spam|urgency)\b/i },
   { label: 'research',  kw: /\b(research|web ?search|deep[-_ ]research|sources?|investigate)\b/i },
   { label: 'cookbook',  kw: /\b(cookbook|model[-_ ]?(serve|download)|hf|huggingface|vllm|llama|ollama)\b/i },
-  { label: 'calendar',  kw: /\b(calendar|event|meeting|appointment|schedule)\b/i },
-  { label: 'reminders', kw: /\b(reminder|note|notify|alert)\b/i },
   { label: 'check-in',  kw: /\b(check[-_ ]?in|morning|evening|daily|standup)\b/i },
   { label: 'memory',    kw: /\b(memory|memories|remember|recall)\b/i },
 ];
@@ -2224,9 +2124,6 @@ function _renderActivityEntry(entry) {
       resultHtml = `<pre style="white-space:pre-wrap;word-break:break-word;">${_escHtml(entry.result || '')}</pre>`;
     }
   }
-  // Bracketed prefixes like "[Default] No recent emails" — the fan-out across
-  // accounts joins per-account results. Style them as compact accent tags so
-  // the activity row reads as "<tag> message" instead of a wall of brackets.
   // Skip <pre>/<code> blocks: bash output / tracebacks / numbered lists often
   // contain "\n[N] ..." sequences that the prefix regex would otherwise mangle.
   {
@@ -2255,7 +2152,7 @@ function _renderActivityEntry(entry) {
   const hasRunningProgress = !!(entry.result && entry.result.trim() && !_runningPlaceholder && (entry.status === 'running' || entry.status === 'queued'));
   // "Open in chat" only makes sense for runs whose result is a real assistant
   // message (Prompt / Research tasks). Action/event runs are just log lines
-  // (e.g. "No recent emails", "Tidied N memories") — for those, replace the
+  // (e.g. "Tidied N memories") — for those, replace the
   // button with "Copy log" so you can grab the text without spawning a chat
   // with nothing useful in it.
   const _isChatWorthy = entry.kind === 'llm' || entry.kind === 'research';

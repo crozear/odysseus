@@ -403,11 +403,9 @@ def setup_chat_routes(
         chat_mode = str(form_data.get("mode", "")).lower()  # 'chat' or 'agent'
         # Did the USER explicitly pick agent mode? (vs. us auto-escalating
         # below). Skill extraction should only learn from real agent sessions,
-        # not chats we quietly promoted for a notes/calendar intent.
         user_requested_agent = (chat_mode == "agent")
         # Intent auto-escalation: if the user is clearly asking the assistant
-        # to create a todo, reminder, or calendar event, promote chat → agent
-        # for this turn so the LLM has access to manage_notes / manage_calendar.
+        # to create a todo, promote chat → agent
         # This is a LIGHT promotion — see the disabled_tools block below, which
         # withholds shell/code/file tools so the model doesn't try to `bash`
         # its way through a plain chat request (and fail, especially with the
@@ -634,7 +632,6 @@ def setup_chat_routes(
             disabled_tools.update(_global_disabled)
 
         # Light auto-escalation: the user is in chat mode and just expressed a
-        # notes/calendar/email intent. Grant the relevant managers but withhold
         # the heavy "do things on the computer" tools — otherwise the model
         # tries to shell out for a request that never needed it, then fails
         # (and looks broken when the shell is disabled).
@@ -659,7 +656,7 @@ def setup_chat_routes(
             disabled_tools.update(_compare_strip)
             # In chat mode compare, disable ALL agent tools (no bash, python, file ops)
             if chat_mode == 'chat':
-                disabled_tools.update({"bash", "python", "read_file", "write_file", "web_search", "thinking", "web_fetch", "search_chats", "manage_tasks"})
+                disabled_tools.update({"bash", "python", "read_file", "write_file", "web_search", "thinking", "web_fetch", "search_chats"})
 
         async def stream_with_save() -> AsyncGenerator[str, None]:
             # _effective_mode is read-only here; closure captures it from

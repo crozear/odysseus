@@ -109,7 +109,6 @@ Core (`requirements.txt`) and optional (`requirements-optional.txt`):
 | youtube-transcript-api | MIT |
 | markdown | BSD-3-Clause |
 | icalendar | BSD-2-Clause |
-| caldav | GPL-3.0-or-later OR Apache-2.0 (dual; used under Apache-2.0) |
 | cryptography | Apache-2.0 / BSD-3-Clause |
 | bcrypt | Apache-2.0 |
 | MCP (Model Context Protocol SDK) | MIT |
@@ -128,9 +127,6 @@ with this project; their licenses do not bind this codebase, but they deserve
 credit:
 
 - [Ollama](https://github.com/ollama/ollama) — local model serving (MIT)
-- [Radicale](https://github.com/Kozea/Radicale) — CardDAV/CalDAV server (GPL-3.0)
-- [Dovecot](https://www.dovecot.org/) — IMAP server
-- [isync / mbsync](https://isync.sourceforge.io/) — IMAP mailbox sync (GPL-2.0)
 - [tmux](https://github.com/tmux/tmux) — terminal multiplexer; Cookbook shells out to it on Linux/macOS for background model downloads and serves (ISC)
 - [OpenSSH](https://www.openssh.com/) (`ssh`, `ssh-keygen`, `ssh-copy-id`) — Cookbook shells out to it to manage remote model servers and provision keys (BSD-style permissive)
 - Model/API providers: Anthropic, OpenAI, Google (Gemini), DuckDuckGo
@@ -151,8 +147,6 @@ concerns from earlier are resolved:
   `requirements-optional.txt`. The MIT core runs without it. If you choose to
   install it, AGPL's network clause then applies to *that feature* for your
   deployment (Artifex also sells a commercial PyMuPDF license that lifts this).
-- **`caldav`** (Python lib) is **dual-licensed GPL-3.0-or-later OR Apache-2.0**.
-  Odysseus uses it under **Apache-2.0**, which is permissive and MIT-compatible.
 - **`markitdown`** (Microsoft) is **MIT** and used only as an *optional* dependency for Office/EPUB text
   extraction (`src/markitdown_runtime.py`), lazy-imported with graceful fallback — the MIT core runs without
   it. The cloud `az-doc-intel` extra is deliberately **not** installed, keeping extraction fully local.

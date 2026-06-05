@@ -1277,12 +1277,6 @@ async function _cmdToolPanel(tool, args, ctx) {
     await cookbookModule?.open?.({ tab: 'Download', usecase: rest || undefined });
     return true;
   }
-  if (target === 'email') {
-    const btn = document.getElementById('rail-email') || document.getElementById('email-section-title');
-    if (btn) btn.click();
-    else slashReply('Could not open Email.');
-    return true;
-  }
   if (target === 'settings') {
     if (settingsModule && typeof settingsModule.open === 'function') settingsModule.open(rest || undefined);
     else document.getElementById('user-bar-settings')?.click();
@@ -1474,17 +1468,9 @@ async function _cmdNote(args, ctx) {
   return true;
 }
 
-// ── Todo / Remind / Event ───────────────────────────────────────────────
-// Quick deterministic wrappers over /api/notes and /api/calendar/events.
-// They never involve the LLM — they parse the string locally and hit the
-// API directly, so they work instantly regardless of chat/agent mode.
+// ── Todo ─────────────────────────────────────────────────────────────────
+// Quick deterministic wrapper over /api/notes.
 
-function _pad2(n) { return String(n).padStart(2, '0'); }
-
-/** Local-time ISO-8601 string (no Z, no offset) — what the calendar API wants. */
-function _toLocalIso(d) {
-  return `${d.getFullYear()}-${_pad2(d.getMonth()+1)}-${_pad2(d.getDate())}T${_pad2(d.getHours())}:${_pad2(d.getMinutes())}:00`;
-}
 
 /**
  * Parse a natural-language time spec from the *start* of the string.
@@ -1496,64 +1482,6 @@ function _toLocalIso(d) {
  *   "YYYY-MM-DD HH:MM"
  * Swallows common stop words: "me", "at", "on", "to".
  */
-function _parseTimeSpec(input) {
-  let s = (input || '').trim().replace(/^(me\s+)/i, '').trim();
-  const now = new Date();
-
-  // "in 30m" / "in 2h" / "in 1d"
-  let m = s.match(/^in\s+(\d+)\s*(m|min|mins|minutes|h|hr|hrs|hours|d|day|days)\b\s*(?:to\s+)?(.*)$/i);
-  if (m) {
-    const n = parseInt(m[1], 10);
-    const unit = m[2].toLowerCase();
-    const d = new Date(now);
-    if (unit.startsWith('m')) d.setMinutes(d.getMinutes() + n);
-    else if (unit.startsWith('h')) d.setHours(d.getHours() + n);
-    else d.setDate(d.getDate() + n);
-    return { date: d, rest: m[3].trim() };
-  }
-
-  // "YYYY-MM-DD HH:MM"
-  m = s.match(/^(\d{4})-(\d{2})-(\d{2})[T\s]+(\d{1,2}):(\d{2})\s*(?:to\s+)?(.*)$/i);
-  if (m) {
-    const d = new Date(+m[1], +m[2]-1, +m[3], +m[4], +m[5]);
-    return { date: d, rest: m[6].trim() };
-  }
-
-  // "today HH:MM" / "tomorrow HH:MM" / "today 9am" / "tomorrow 9pm"
-  m = s.match(/^(today|tomorrow)\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:to\s+)?(.*)$/i);
-  if (m) {
-    const d = new Date(now);
-    if (m[1].toLowerCase() === 'tomorrow') d.setDate(d.getDate() + 1);
-    let hh = parseInt(m[2], 10);
-    const mm = m[3] ? parseInt(m[3], 10) : 0;
-    const mer = (m[4] || '').toLowerCase();
-    if (mer === 'pm' && hh < 12) hh += 12;
-    if (mer === 'am' && hh === 12) hh = 0;
-    if (hh > 23 || mm > 59) return null;
-    d.setHours(hh, mm, 0, 0);
-    return { date: d, rest: m[5].trim() };
-  }
-
-  // bare "HH:MM" / "9am" / "9pm" / "at HH:MM" — today, or tomorrow if past
-  m = s.match(/^(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b\s*(?:to\s+)?(.*)$/i);
-  if (m) {
-    const d = new Date(now);
-    let hh = parseInt(m[1], 10);
-    const mm = m[2] ? parseInt(m[2], 10) : 0;
-    const mer = (m[3] || '').toLowerCase();
-    if (mer === 'pm' && hh < 12) hh += 12;
-    if (mer === 'am' && hh === 12) hh = 0;
-    // Require a valid hour/minute and either a minute field or am/pm to
-    // avoid eating plain numbers like "3 apples".
-    if (hh > 23 || mm > 59) return null;
-    if (m[2] == null && !mer) return null;
-    d.setHours(hh, mm, 0, 0);
-    if (d.getTime() <= now.getTime()) d.setDate(d.getDate() + 1);
-    return { date: d, rest: m[4].trim() };
-  }
-
-  return null;
-}
 
 async function _cmdTodo(args, ctx) {
   const sub = (args[0] || '').toLowerCase();
@@ -1580,32 +1508,6 @@ async function _cmdTodo(args, ctx) {
   return true;
 }
 
-async function _cmdEvent(args, ctx) {
-  const raw = args.join(' ').trim();
-  if (!raw) { slashReply('Usage: /event tomorrow 14:00 Title  ·  /event in 30m Title  ·  /event 2026-04-20 15:00 Title'); return true; }
-  const parsed = _parseTimeSpec(raw);
-  if (!parsed || !parsed.rest) { slashReply(`Could not parse time from: ${ctx.esc(raw)}`); return true; }
-  const start = parsed.date;
-  const end = new Date(start.getTime() + 60 * 60 * 1000); // default 1h block
-  const body = {
-    summary: parsed.rest,
-    dtstart: _toLocalIso(start),
-    dtend: _toLocalIso(end),
-    all_day: false,
-  };
-  const res = await fetch(`${API_BASE}/api/calendar/events`, {
-    method: 'POST', credentials: 'same-origin',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (res.ok) {
-    await typewriterReply(`Event: ${ctx.esc(parsed.rest)} — ${start.toLocaleString()}`);
-  } else {
-    const err = await res.text().catch(() => '');
-    slashReply(`Failed to create event${err ? `: ${ctx.esc(err.slice(0,200))}` : ''}`);
-  }
-  return true;
-}
 
 // ── Shell (user command execution) ──
 
@@ -3203,7 +3105,7 @@ async function _cmdTourSettings(args, ctx) {
       text: '<b>Vision</b> — powers any image-recognition feature: drop a photo in chat, ask what\'s in it, OCR, etc.',
       before: () => _clickNav('ai') },
     { sel: '#settings-modal .settings-nav-item[data-settings-tab="integrations"]',
-      text: '<b>Integrations</b> — wire up email, calendar, contacts here (per-account).',
+      text: '<b>Integrations</b> — wire up external services and MCP servers here.',
       before: () => _clickNav('integrations') },
     { sel: '#settings-modal .settings-nav-item[data-settings-tab="search"]',
       text: '<b>Search</b> — plug in your own search provider, or use the bundled <b>SearXNG</b> out of the box.',
@@ -3211,12 +3113,6 @@ async function _cmdTourSettings(args, ctx) {
     { sel: '#settings-modal .settings-nav-item[data-settings-tab="appearance"]',
       text: '<b>Appearance</b> — too many tools you don\'t need? Adjust them here! Toggle sidebar buttons, tool icons, and section visibility.',
       before: () => _clickNav('appearance') },
-    { sel: '#settings-modal .settings-nav-item[data-settings-tab="email"]',
-      text: '<b>Email</b> — sync schedule, drafts, snooze defaults — everything email-flow related.',
-      before: () => _clickNav('email') },
-    { sel: '#settings-modal .settings-nav-item[data-settings-tab="reminders"]',
-      text: '<b>Reminders</b> — quiet hours and how Odysseus nudges you about calendar + urgent email.',
-      before: () => _clickNav('reminders') },
   ];
 
   for (let i = 0; i < steps.length; i++) {
@@ -4564,7 +4460,7 @@ async function _cmdTourLibrary(args, ctx) {
     { sel: '#doc-tab-bar',
       text: 'Multiple docs as <b>tabs</b>. Drag to reorder, click <b>+</b> for a new one, click the dots for rename / clone / export / delete.' },
     { sel: '#doc-language-select',
-      text: 'Switch the <b>document type</b> — markdown shows a preview, email shows To/Subject/Send, PDF lets you fill blanks with AI.' },
+      text: 'Switch the <b>document type</b> — markdown shows a live preview, PDF lets you fill blanks with AI.' },
     { sel: '#doc-editor-textarea',
       text: 'Ask the LLM to <i>draft</i>, <i>rewrite</i>, <i>summarize</i>, <i>feedback</i> — edits stream live.' },
   ];
@@ -5452,14 +5348,6 @@ const COMMANDS = {
     noUserBubble: true,
     usage: '/todo Your task  ·  /todo list',
   },
-  event: {
-    alias: ['ev'],
-    category: 'Productivity',
-    help: 'Create a calendar event',
-    handler: _cmdEvent,
-    noUserBubble: true,
-    usage: '/event tomorrow 14:00 Team call',
-  },
   setup: {
     alias: ['su', 'seutp'],
     category: 'Getting started',
@@ -5579,13 +5467,6 @@ const COMMANDS = {
     help: 'Open Cookbook; use "serve" to jump to model serving',
     handler: (args, ctx) => _cmdToolPanel('cookbook', args, ctx),
     usage: '/cookbook  ·  /cookbook serve qwen'
-  },
-  email: {
-    alias: ['mail', 'inbox'],
-    category: 'Tools',
-    help: 'Open Email',
-    handler: (args, ctx) => _cmdToolPanel('email', args, ctx),
-    usage: '/email'
   },
   notes: {
     alias: [],

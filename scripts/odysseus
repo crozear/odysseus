@@ -3,8 +3,7 @@
 
 Discovers `scripts/odysseus-<name>` siblings and dispatches to them, the
 same way `git` finds `git-foo`. Pure passthrough: any flags after the
-subcommand name are forwarded as-is, so `odysseus mail list --pretty`
-behaves exactly like `odysseus-mail list --pretty`.
+subcommand name are forwarded as-is
 
     odysseus                       # list every subcommand + short help
     odysseus <name>                # run odysseus-<name>

@@ -2174,7 +2174,7 @@ export function _renderRunningTab() {
           uiModule.showToast('Copied last 50 lines');
         }});
         items.push({ label: 'Remove', action: 'kill', danger: true });
-        // Cancel = mobile-only dismiss item. Same pattern as the email kebab:
+        // Cancel = mobile-only dismiss item. Same pattern as the kebab:
         // the `dropdown-cancel-mobile` class is hidden on desktop and styled
         // as a separated bottom row on mobile (border-top + extra padding).
         items.push({ label: 'Cancel', action: 'cancel', mobileOnly: true, custom: () => {} });
@@ -2241,7 +2241,7 @@ export function _renderRunningTab() {
         };
         // Close on scroll too — once the page scrolls, the dropdown's
         // fixed position no longer matches the originating ⋮ button, so
-        // it visually drifts. Matches the email kebab behaviour.
+        // it visually drifts.
         const scrollClose = () => _cleanup();
         let _unreg = () => {};
         const _cleanup = () => {

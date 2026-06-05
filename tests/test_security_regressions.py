@@ -71,7 +71,7 @@ def test_secret_storage_is_encrypted(tmp_path, monkeypatch):
 def test_secret_storage_corrupt_token_returns_empty(tmp_path, monkeypatch):
     """A row encrypted under a different key (or hand-corrupted) must
     degrade to '' rather than raise — so a single bad row can't 500 the
-    whole email config lookup."""
+    whole config lookup."""
     ss = _import_secret_storage(tmp_path, monkeypatch)
     assert ss.decrypt("enc:not-a-valid-fernet-token") == ""
 
@@ -445,8 +445,7 @@ def test_pdf_marker_render_lookup_denies_cross_owner_without_doc_leak(tmp_path):
 def test_require_user_rejects_unauthenticated(monkeypatch):
     """The shared auth dependency must raise 401 when the middleware
     didn't attach a user AND auth is configured. Mirrors the
-    defense-in-depth check on /api/contacts/*, /api/personal/*,
-    /api/email/*."""
+    defense-in-depth check on /api/personal/*."""
     sys.modules.pop("src.auth_helpers", None)
     from fastapi import HTTPException
 
@@ -855,37 +854,6 @@ def test_web_fetch_guard_blocks_redirect_into_private(monkeypatch):
     assert "non-public" in str(exc.value)
 
 
-# ── audit fixes (2026-06-01): email XSS, attachment traversal, authz ──
-
-def _import_attachment_extract_dir():
-    sys.modules.pop("routes.email_helpers", None)
-    from routes.email_helpers import attachment_extract_dir, ATTACHMENTS_DIR
-    return attachment_extract_dir, ATTACHMENTS_DIR
-
-
-@pytest.mark.parametrize("folder,uid", [
-    ("../../../../tmp/evil", "1"),
-    ("INBOX", "../../etc/cron.d/x"),
-    ("a/../../b", "x"),
-    ("..", ".."),
-    ("/abs/path", "2"),
-])
-def test_attachment_extract_dir_stays_contained(folder, uid):
-    """User-controlled folder/uid must never escape ATTACHMENTS_DIR — pins the
-    fix for the attachment-extraction path traversal."""
-    aed, base = _import_attachment_extract_dir()
-    target = aed(folder, uid)
-    base_r = base.resolve()
-    assert target == base_r or base_r in target.parents
-    # exactly one extra path segment, and no `..` component survived
-    rel = target.relative_to(base_r)
-    assert ".." not in rel.parts
-
-
-def test_attachment_extract_dir_normal_inputs_unchanged():
-    aed, base = _import_attachment_extract_dir()
-    assert aed("INBOX", "123") == base.resolve() / "INBOX_123"
-
 
 def test_diagnostics_routes_are_admin_gated():
     """db/rag stats + test endpoints must require admin (they relied only on
@@ -895,16 +863,6 @@ def test_diagnostics_routes_are_admin_gated():
     for handler in ("get_database_stats", "get_rag_stats", "test_youtube", "test_research"):
         assert f"def {handler}(request: Request" in text, handler
     assert text.count("require_admin(request)") >= 4
-
-
-def test_email_thread_rendering_sanitizes_body_html():
-    """Both threaded render paths must run server-parsed body_html through the
-    allowlist sanitizer (the flat path already did)."""
-    src = Path(__file__).resolve().parents[1] / "static" / "js" / "emailLibrary.js"
-    text = src.read_text()
-    # every `t.body_html` reference is wrapped by _sanitizeHtml(...)
-    assert text.count("t.body_html") == text.count("_sanitizeHtml(t.body_html")
-    assert "t.body_html" in text  # guard against the file being refactored away
 
 
 def test_session_html_export_escapes_name():

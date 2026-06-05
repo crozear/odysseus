@@ -112,9 +112,9 @@ class McpManager:
             self._sessions[server_id] = session
             self._stacks[server_id] = stack
             self._tools[server_id] = tools
-            # Extract identity hints from env vars (e.g. email address, API name)
+            # Extract identity hints from env vars (e.g. account identity, API name)
             # so tool descriptions can distinguish between multiple instances of
-            # the same MCP server (e.g. two email accounts).
+            # the same MCP server (e.g. two accounts of the same kind).
             identity_hints = []
             for k, v in (env or {}).items():
                 k_lower = k.lower()
@@ -386,7 +386,6 @@ class McpManager:
             "image_gen",
             "memory",
             "rag",
-            "email",
         }
 
     def get_server_status(self, server_id: str) -> Dict:
@@ -431,7 +430,7 @@ class McpManager:
             return ""
 
         for server_name, server_tools in by_server.items():
-            # Include identity (e.g. email address) if available
+            # Include identity (e.g. account identity) if available
             sid = server_tools[0]["server_id"] if server_tools else ""
             identity = self._connections.get(sid, {}).get("identity", "")
             label = f"{server_name} ({identity})" if identity else server_name

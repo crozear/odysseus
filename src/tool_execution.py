@@ -694,17 +694,15 @@ async def execute_tool_block(
     """
     from src.tool_implementations import (
         do_create_document, do_update_document, do_edit_document,
-        do_suggest_document, do_search_chats, do_manage_tasks,
+        do_suggest_document, do_search_chats,
         do_manage_skills, do_api_call, do_manage_endpoints,
         do_manage_mcp, do_manage_webhooks, do_manage_tokens,
-        do_manage_documents, do_manage_settings, do_manage_notes,
-        do_manage_calendar,
+        do_manage_documents, do_manage_settings,
         do_download_model, do_serve_model, do_list_served_models, do_stop_served_model,
         do_list_downloads, do_cancel_download, do_search_hf_models, do_list_cached_models,
         do_list_serve_presets, do_serve_preset, do_adopt_served_model,
         do_list_cookbook_servers,
-        do_edit_image, do_trigger_research, do_manage_research, do_resolve_contact,
-        do_manage_contact,
+        do_edit_image, do_trigger_research, do_manage_research,
         do_vault_search, do_vault_get, do_vault_unlock,
         do_app_api,
     )
@@ -725,12 +723,12 @@ async def execute_tool_block(
                     "error": (
                         f"You wrote a JSON object inside a ```{tool}``` block, but that's not a tool call.\n"
                         "To call a tool, use the tool name as the fence tag, e.g.\n"
-                        "```resolve_contact\n"
-                        "{\"name\": \"...\"}\n"
+                        "```manage_notes\n"
+                        "{\"action\": \"add\", \"text\": \"...\"}\n"
                         "```\n"
                         "or\n"
-                        "```send_email\n"
-                        "{\"to\": \"...\", \"subject\": \"...\", \"body\": \"...\"}\n"
+                        "```web_search\n"
+                        "{\"query\": \"...\"}\n"
                         "```"
                     ),
                     "exit_code": 1,
@@ -818,9 +816,6 @@ async def execute_tool_block(
                   "ui_control", "ask_teacher"):
         from src.ai_interaction import dispatch_ai_tool
         desc, result = await dispatch_ai_tool(tool, content, session_id, owner=owner)
-    elif tool == "manage_tasks":
-        desc = "manage_tasks"
-        result = await do_manage_tasks(content, owner=owner)
     elif tool == "manage_skills":
         desc = "manage_skills"
         result = await do_manage_skills(content, owner=owner)
@@ -846,12 +841,6 @@ async def execute_tool_block(
     elif tool == "manage_settings":
         desc = "manage_settings"
         result = await do_manage_settings(content, owner=owner)
-    elif tool == "manage_notes":
-        desc = "manage_notes"
-        result = await do_manage_notes(content, owner=owner)
-    elif tool == "manage_calendar":
-        desc = "manage_calendar"
-        result = await do_manage_calendar(content, owner=owner)
     elif tool == "download_model":
         desc = "download_model"
         result = await do_download_model(content, owner=owner)
@@ -900,12 +889,6 @@ async def execute_tool_block(
     elif tool == "manage_research":
         desc = "manage_research"
         result = await do_manage_research(content, owner=owner)
-    elif tool == "resolve_contact":
-        desc = "resolve_contact"
-        result = await do_resolve_contact(content, owner=owner)
-    elif tool == "manage_contact":
-        desc = "manage_contact"
-        result = await do_manage_contact(content, owner=owner)
     elif tool == "vault_search":
         desc = "vault_search"
         result = await do_vault_search(content, owner=owner)
@@ -992,8 +975,8 @@ def format_tool_result(description: str, result: Dict) -> str:
     elif "error" in result:
         parts.append(f"**Error:** {result['error']}")
 
-    # Surface any additional structured payload (events, tasks, notes, calendars,
-    # documents, attachments, etc.) that the dedicated branches above don't show.
+    # Surface any additional structured payload (tasks, notes, documents,
+    # attachments, etc.) that the dedicated branches above don't show.
     # Without this, tools that return {"response": "...", "events": [...]} would
     # silently drop the events list and the model would only see the summary line.
     extra = {k: v for k, v in result.items() if k not in _FORMATTER_HANDLED_KEYS}

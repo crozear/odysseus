@@ -14,7 +14,6 @@
     "category": "Productivity",
     "capabilities": [
       "todos",
-      "email",
       "scoped-api"
     ],
     "defaultPrompt": "Use Odysseus only through configured scoped access. Check capabilities before reading or writing data."

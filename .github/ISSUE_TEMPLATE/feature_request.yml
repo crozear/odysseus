@@ -34,8 +34,6 @@ body:
       options:
         - "-- Please Select --"
         - Chat / Agent
-        - Email
-        - Calendar
         - Documents / RAG
         - Memory
         - Cookbook / Local Models / GPU

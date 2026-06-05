@@ -1779,7 +1779,7 @@ function _renderRecipes() {
   html += '<div class="admin-card" style="flex:0 0 auto;display:flex;flex-direction:column;">';
   html += '<div style="display:flex;align-items:baseline;gap:8px;margin-bottom:2px;margin-top:-4px;">';
   html += '<h2 style="margin:0;padding:0;line-height:1;">Servers</h2>';
-  // Reuse the calendar +New pill: spinning plus, label fades in idea uses
+  // Spinning plus with label that fades in —
    // the same `.cal-add-btn-text` rules, so styling stays consistent.
   html += '<button class="cal-add-btn cal-add-btn-text" id="cookbook-server-add" title="Add server" style="margin-left:auto;"><span class="cal-add-plus">+</span><span class="cal-add-label">Add</span></button>';
   html += '</div>';

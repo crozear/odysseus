@@ -76,7 +76,7 @@ class SkillUpdateRequest(BaseModel):
 
 def _skill_test_task(skill: dict) -> str:
     """Build a self-contained test task. Many skills act ON something (a doc,
-    an email); if we just hand over the 'when to use' text the agent has nothing
+    a file); if we just hand over the 'when to use' text the agent has nothing
     to work on and stalls asking for input. So we tell it to create its own
     realistic fixture first, then apply the skill end-to-end."""
     if not isinstance(skill, dict):
@@ -119,7 +119,7 @@ async def _eval_skill_run(skill_md: str, task: str, transcript: str,
         "if the procedure works — note them as issues on an otherwise-passing run.\n\n"
         "IMPORTANT — fairness rule: if the run could NOT proceed because it lacked "
         "an input or target the test never provided (e.g. there was no document/"
-        "email/data to act on, so the agent reasonably asked for it), that is NOT "
+        "data to act on, so the agent reasonably asked for it), that is NOT "
         "the skill's fault. Return verdict \"inconclusive\" — do NOT mark it fail "
         "or needs_work. Only judge the skill's PROCEDURE; reserve fail/needs_work "
         "for when the steps themselves are wrong, vague, or reference missing tools.\n\n"
@@ -310,7 +310,7 @@ def _should_check_retrieval_precision(skill: dict) -> bool:
     broad = {
         "arch", "arch linux", "linux", "network", "networking", "wifi",
         "installation", "install", "system", "ssh", "document", "documents",
-        "search", "email", "calendar", "gpu", "server", "python",
+        "search", "gpu", "server", "python",
     }
     if not isinstance(skill, dict):
         return False
@@ -1106,7 +1106,7 @@ def setup_skills_routes(skills_manager: SkillsManager) -> APIRouter:
     @router.get("/builtin")
     async def list_builtin_skills(request: Request):
         """Read-only list of the agent's built-in tool capabilities (research,
-        sessions, tasks, email, etc.) — the things it natively knows how to do.
+        sessions, tasks, etc.) — the things it natively knows how to do.
         Surfaced so the Skills tab can show them in a separate "Built-in"
         section alongside the user's learned SKILL.md skills. Sourced from
         agent_loop.TOOL_SECTIONS (the same descriptions the model is given)."""

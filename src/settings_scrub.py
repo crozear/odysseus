@@ -6,7 +6,7 @@ in the FastAPI app / auth / database import chain.
 
 ``/api/auth/settings`` is auth-exempt — the frontend (and the pre-login page)
 read it for keybinds + TTS prefs, so non-admin and unauthenticated callers get a
-*scrubbed* copy. Secrets (provider API keys, IMAP/SMTP passwords, OAuth tokens)
+*scrubbed* copy. Secrets (provider API keys, service passwords, OAuth tokens)
 must NOT leak to them — load-bearing when the app is reachable over a Cloudflare
 tunnel / reverse proxy. Scrubbing is deep (recurses nested dicts/lists) and keyed
 on secret-shaped names.
@@ -30,7 +30,7 @@ def is_secret_key(name: str) -> bool:
 def _scrub_value(key, value):
     """Mask secret-shaped leaves, recursing into nested dicts/lists so a secret
     stored under a non-secret parent key (e.g.
-    ``{"email_account": {"smtp_password": "..."}}``) is still blanked. Only
+    ``{"service_account": {"api_password": "..."}}``) is still blanked. Only
     non-empty *string* values are blanked; presence is preserved."""
     if isinstance(value, dict):
         return {

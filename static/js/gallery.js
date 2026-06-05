@@ -2005,8 +2005,7 @@ export function openGallery() {
     restoreFn: () => {},
   });
 
-  // Allow dragging the modal by its header — same pattern as Email Library,
-  // Sessions, etc. The tileManager (corner/edge snap-tiling) listens on
+  // Allow dragging the modal by its header — same pattern as Sessions, etc. The tileManager (corner/edge snap-tiling) listens on
   // pointer events too; it only shows a ghost on move and snaps on release,
   // so the two coexist.
   _makeGalleryDraggable(modal.querySelector('.modal-content'));
@@ -2510,7 +2509,7 @@ export function openGallery() {
 
 
   // ── Bulk actions menu (Favorite / Add tag / Delete on the selection) ──
-  // Built dynamically like the email library's _showBulkActionsMenu so it
+  // Built dynamically like the library's _showBulkActionsMenu so it
   // shares the exact same dropdown style/behaviour.
   const _bulkActionsBtn = document.getElementById('gallery-bulk-actions');
   function _showGalleryBulkMenu(anchor) {

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="description" content="Odysseus — a self-hosted AI workspace: chat, agents, tools, model serving, email, research, and more. Your models, your hardware, your data.">
+<meta name="description" content="Odysseus — a self-hosted AI workspace: chat, agents, tools, model serving, research, and more. Your models, your hardware, your data.">
 <title>Odysseus — A Self-Hosted AI Workspace</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 4L16 22L6 22Z' fill='%23e06c75'/%3E%3Cpath d='M16 8L16 22L24 22Z' fill='%23e06c75' opacity='0.6'/%3E%3Cpath d='M4 24Q10 20 16 24Q22 28 28 24' stroke='%23e06c75' stroke-width='2.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
 <style>
@@ -289,7 +289,6 @@
   /* These clips have their action on the left, so show the left edge instead of
      the centered crop. */
   .preview-panel:has(source[src="document.webm"]) video,
-  .preview-panel:has(source[src="notes.webm"]) video { object-position: right center; }
   .preview-panel .label {
     position: absolute; z-index: 2; left: 0; right: 0; bottom: 0; padding: 14px 16px;
     background: linear-gradient(0deg, rgba(0,0,0,0.82), transparent);
@@ -422,7 +421,7 @@
       <h1>Your own <span class="grad">AI workspace</span>,<br>running on your hardware.</h1>
       <p class="lede">
         Odysseus is a self-hosted interface for talking to language models &mdash; chat,
-        autonomous agents, tools, model serving, email, research, and more. Local-first,
+        autonomous agents, tools, model serving, research, and more. Local-first,
         privacy-first, and no telemetry. Just you and your models.
       </p>
       <p style="font-size:11.5px; color:var(--muted); opacity:0.7; max-width:560px; margin:-18px auto 30px;">
@@ -460,11 +459,6 @@
           <span class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg></span>
           <h3>Cookbook</h3>
           <p>Hardware-aware model recommendations and one-click serving across 270+ catalogued models.</p>
-        </div>
-        <div class="feature">
-          <span class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></svg></span>
-          <h3>Email Assistant</h3>
-          <p>AI summaries, style-matched draft replies, auto-tagging and spam triage over IMAP/SMTP.</p>
         </div>
         <div class="feature">
           <span class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg></span>
@@ -623,11 +617,6 @@
           <div class="ph"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8M16 17H8M10 9H8"/></svg><span>[ Documents ]</span></div>
           <video muted loop playsinline preload="none"><source src="document.webm" type="video/webm"><source src="document.mp4" type="video/mp4"></video>
           <div class="label"><span class="t"><svg class="ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8M16 17H8M10 9H8"/></svg>Documents</span><span class="desc">A document editor that puts you first — work on what you want, with AI help when you want it.</span></div>
-        </div>
-        <div class="preview-panel" tabindex="0">
-          <div class="ph"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m3 7 2 2 4-4"/><path d="m3 17 2 2 4-4"/><path d="M13 6h8M13 18h8"/></svg><span>[ Notes &amp; Tasks ]</span></div>
-          <video muted loop playsinline preload="none"><source src="notes.webm" type="video/webm"><source src="notes.mp4" type="video/mp4"></video>
-          <div class="label"><span class="t"><svg class="ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 7 2 2 4-4"/><path d="m3 17 2 2 4-4"/><path d="M13 6h8M13 18h8"/></svg>Notes &amp; Tasks</span><span class="desc">Capture notes and to-dos, or let scheduled agents work and brief you after.</span></div>
         </div>
         <div class="preview-panel" tabindex="0">
           <div class="ph"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.6-3.6a2 2 0 0 0-2.8 0L6 21"/></svg><span>[ Image Gallery ]</span></div>

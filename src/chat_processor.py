@@ -125,7 +125,7 @@ class ChatProcessor:
             if any(w in msg_lower for w in ["name", "who am i", "my name"]):
                 if category == "identity" or any(w in mem_lower for w in ["name is", "i am", "called"]):
                     cat_boost = 1.4
-            elif any(w in msg_lower for w in ["phone", "email", "address", "contact"]):
+            elif any(w in msg_lower for w in ["phone", "address", "contact"]):
                 if category == "contact" or "@" in mem_lower:
                     cat_boost = 1.3
             elif any(w in msg_lower for w in ["like", "prefer", "favorite"]):
@@ -184,16 +184,6 @@ class ChatProcessor:
                 "role": "system",
                 "content": preset_system_prompt
             })
-        if not agent_mode:
-            try:
-                from src.user_time import current_datetime_prompt
-                preface.append({
-                    "role": "system",
-                    "content": current_datetime_prompt(),
-                })
-            except Exception:
-                logger.debug("Failed to add current date/time context", exc_info=True)
-
         # Memory: pinned (always included) + extended (RAG-retrieved when relevant)
         self._last_used_memories = []  # track what was injected
         if use_memory:

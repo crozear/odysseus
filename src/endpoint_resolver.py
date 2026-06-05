@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 # Model-name substrings that are NOT chat/generation models. When an endpoint
 # has no explicit model configured we pick the first CHAT model from its list —
 # never an embedding/tts/etc. (an OpenAI-style endpoint often lists
-# `text-embedding-ada-002` first, which silently broke email-summarize and
+# `text-embedding-ada-002` first, which silently broke summarization and
 # other resolve_endpoint callers with "Cannot reach model").
 _NON_CHAT_MODEL = (
     "text-embedding", "embedding", "tts-", "whisper", "dall-e",

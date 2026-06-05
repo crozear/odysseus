@@ -34,7 +34,6 @@ _BACKUP_DIR = _REPO_ROOT / "backups"
 # Stuff inside data/ that we explicitly skip — anything we can re-derive
 # from the SQLite DB + JSON state. Keeps the tarball small.
 _SKIP_PATTERNS = {
-    "mail-attachments",     # cached IMAP attachment extractions
     "deep_research",        # research runs are large; back up explicitly via --include-research
     "personal_uploads",     # uploaded files; usually wanted, included by default actually
 }
@@ -235,7 +234,7 @@ def _build_parser():
     ps.add_argument("--include-research", action="store_true",
                     help="include data/deep_research/ (skipped by default; large)")
     ps.add_argument("--include-attachments", action="store_true",
-                    help="include data/mail-attachments/ (skipped by default; re-derivable)")
+                    help="include data-attachments/ (skipped by default; re-derivable)")
     ps.set_defaults(func=cmd_snapshot)
 
     pl = sub.add_parser("list", parents=[common])

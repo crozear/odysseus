@@ -725,7 +725,7 @@ export function renderMemoryList() {
       deleteItem.addEventListener('click', () => { dropdown.style.display = 'none'; deleteMemory(memory.id); });
 
       // Select — enters bulk-select mode and pre-selects this memory. Same
-      // pattern as the email/documents/skills Select item.
+      // pattern as the documents/skills Select item.
       const selectItem = document.createElement('div');
       selectItem.className = 'dropdown-item-compact';
       selectItem.innerHTML = '<span class="dropdown-icon"><span style="font-size:16px;line-height:1;">●</span></span><span>Select</span>';
@@ -738,7 +738,7 @@ export function renderMemoryList() {
         renderMemoryList();
       });
 
-      // Mobile-only Cancel — mirrors the email/documents popup pattern. CSS
+      // Mobile-only Cancel — mirrors the documents popup pattern. CSS
       // hides `.dropdown-cancel-mobile` on desktop where outside-click already
       // dismisses cleanly.
       const cancelItem = document.createElement('div');

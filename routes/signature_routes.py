@@ -1,7 +1,7 @@
 """Signature routes — CRUD for the user's saved visual signatures.
 
 Signatures are reusable image stamps (drawn once, applied to many things):
-PDF form fields, email composition, document insertion. Each signature is
+PDF form fields, document insertion. Each signature is
 stored as a base64 PNG so it can be embedded inline anywhere without a
 separate fetch.
 """

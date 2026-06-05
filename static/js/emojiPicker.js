@@ -4,7 +4,7 @@
  * and — crucially — every character it INSERTS is one with a real monochrome
  * (text) presentation. On insert we append U+FE0E (VARIATION SELECTOR-15) so the
  * glyph renders flat/text, not as a system color emoji — so the RECIPIENT of an
- * email/message sees a non-colored symbol too, not just the sender. Pure-emoji
+ * message sees a non-colored symbol too, not just the sender. Pure-emoji
  * faces (😂, 👍, 😎) have no text form and are intentionally excluded.
  */
 
@@ -112,7 +112,7 @@ let _savedRange = null;
 
 // `target` may be a textarea element id (string) or a resolver function that
 // returns the live target element — the latter lets a caller switch between a
-// textarea and a contenteditable (e.g. plain markdown vs. WYSIWYG email).
+// textarea and a contenteditable (e.g. plain markdown vs. richtext).
 export function createEmojiButton(target) {
   const btn = document.createElement('button');
   btn.type = 'button';
@@ -277,7 +277,7 @@ function _insertEmoji(char) {
   // not just in our own (already-SVG) picker UI.
   const cp = char.codePointAt(0);
   const ins = cp >= 0x80 ? char + VS15 : char;
-  // Contenteditable (e.g. WYSIWYG email body) — insert at the saved caret.
+  // Contenteditable (e.g. richtext body) — insert at the saved caret.
   if (_targetEl.isContentEditable) {
     _targetEl.focus();
     let range = _savedRange;

@@ -9,7 +9,7 @@
 #
 # What it does:
 #   - On the first word after `odysseus`, complete with the list of
-#     subcommands (`mail`, `calendar`, ...).
+#     subcommands.
 #   - On subsequent words, complete with the subcommand's first-token
 #     subcommands (`list`, `show`, ...) which we cache by parsing the
 #     tool's own --help output. Updates lazily; refresh by running

@@ -15,8 +15,6 @@ def _usage() -> int:
     print("  odysseus_api.py capabilities", file=sys.stderr)
     print("  odysseus_api.py todos list", file=sys.stderr)
     print("  odysseus_api.py todos add TITLE", file=sys.stderr)
-    print("  odysseus_api.py emails list [limit]", file=sys.stderr)
-    print("  odysseus_api.py emails read UID", file=sys.stderr)
     print("  odysseus_api.py METHOD /api/codex/path [json-body]", file=sys.stderr)
     return 2
 
@@ -55,21 +53,6 @@ def main() -> int:
         elif action == "add" and len(sys.argv) >= 4:
             method = "POST"
             body = json.dumps({"action": "add", "title": " ".join(sys.argv[3:])})
-        else:
-            return _usage()
-    elif command == "emails":
-        if len(sys.argv) < 3:
-            return _usage()
-        action = sys.argv[2].lower()
-        if action == "list":
-            method = "GET"
-            limit = sys.argv[3] if len(sys.argv) >= 4 else "10"
-            path = f"/api/codex/emails?folder=INBOX&limit={limit}&offset=0&filter=all"
-            body = None
-        elif action == "read" and len(sys.argv) >= 4:
-            method = "GET"
-            path = f"/api/codex/emails/{sys.argv[3]}"
-            body = None
         else:
             return _usage()
     else:

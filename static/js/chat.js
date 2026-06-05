@@ -18,7 +18,6 @@ import thinkingModule from './thinking.js';
 import fileHandlerModule from './fileHandler.js';
 import searchModule from './search.js';
 import documentModule from './document.js';
-import * as emailInbox from './emailInbox.js';
 import codeRunnerModule from './codeRunner.js';
 import slashCommands, { initSlashCommands, isCommand, handleSlashCommand, handleSetupInput, handleSetupWizard, typewriterInto } from './slashCommands.js';
 import createResearchSynapse from './researchSynapse.js';
@@ -156,8 +155,6 @@ import createResearchSynapse from './researchSynapse.js';
     API_BASE = apiBase;
     initSlashCommands({ apiBase, isStreaming: () => isStreaming });
     thinkingModule.init();
-    // Initialize email inbox
-    emailInbox.init(documentModule);
     // Wire the slash-command autocomplete popup on the chat composer. The
     // dispatcher already handles the typed command — this just surfaces the
     // registry as a discoverable menu when the user starts a message with /.
@@ -1440,7 +1437,7 @@ import createResearchSynapse from './researchSynapse.js';
                     _docFenceOpened = true;
                     const title = fenceLines[0].trim();
                     // Keep in sync with backend _KNOWN_LANGS in src/tool_implementations.py
-                    const knownLangs = ['python','py','javascript','js','typescript','ts','html','css','json','yaml','bash','sql','rust','go','java','c','cpp','markdown','text','plain','ruby','swift','kotlin','php','email','csv','xml','toml','ini'];
+                    const knownLangs = ['python','py','javascript','js','typescript','ts','html','css','json','yaml','bash','sql','rust','go','java','c','cpp','markdown','text','plain','ruby','swift','kotlin','php','csv','xml','toml','ini'];
                     const isLang = fenceLines.length >= 2 && knownLangs.includes(fenceLines[1].trim().toLowerCase());
                     const lang = isLang ? fenceLines[1].trim() : '';
                     _docFenceContentStart = fenceIdx + '```create_document\n'.length + title.length + 1 + (isLang ? fenceLines[1].length + 1 : 0);
@@ -2123,14 +2120,6 @@ import createResearchSynapse from './researchSynapse.js';
                 if (json.tool === 'manage_session' && sessionModule) {
                   if (window._manageSessionTimer) clearTimeout(window._manageSessionTimer);
                   window._manageSessionTimer = setTimeout(() => sessionModule.loadSessions(), 1000);
-                }
-                // --- Live-refresh the calendar after manage_calendar (add/edit/delete) ---
-                // so a new event shows without the user hard-refreshing. Debounced
-                // so a batch of event creates only triggers one refetch.
-                if (json.tool === 'manage_calendar') {
-                  if (window._manageCalTimer) clearTimeout(window._manageCalTimer);
-                  window._manageCalTimer = setTimeout(
-                    () => window.dispatchEvent(new CustomEvent('calendar-refresh')), 600);
                 }
                 // --- Live-refresh Memories after manage_memory changes ---
                 if (json.tool === 'manage_memory') {

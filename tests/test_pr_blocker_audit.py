@@ -391,9 +391,9 @@ def test_no_fetch_files_skips_progress(monkeypatch, capsys):
 def test_area_classification():
     audit = load_module()
 
-    areas = audit.classify_areas(["scripts/odysseus-mail", "tests/test_email.py"], "CalDAV sync")
+    areas = audit.classify_areas(["scripts/odysseus", "tests/test_security_regressions.py"], "auth hardening")
 
-    assert "Email / CalDAV" in areas
+    assert "Auth / users / API tokens" in areas
     assert "Docs / tooling / tests" in areas
 
 
@@ -457,11 +457,10 @@ def test_generic_security_file_is_not_classified_as_auth():
     audit = load_module()
 
     areas = audit.classify_areas(
-        ["tests/test_email_linkify_security_js.py"],
-        "Harden email HTML URL sanitization",
+        ["tests/test_security_regressions.py"],
+        "Harden HTML URL sanitization",
     )
 
-    assert "Email / CalDAV" in areas
     assert "Auth / users / API tokens" not in areas
 
 

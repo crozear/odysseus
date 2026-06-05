@@ -1,12 +1,12 @@
 """Admin Danger Zone — per-category wipes.
 
 Each endpoint is admin-only and truncates exactly one domain so the
-user can selectively reset memory / skills / notes / etc. without
+user can selectively reset memory / skills / etc. without
 nuking everything. The catch-all `chats` endpoint mirrors the
 existing /api/sessions/all so the Danger Zone speaks one URL pattern.
 
 URL shape: DELETE /api/admin/wipe/{kind}
-Kinds: chats, memory, skills, notes, tasks, documents, gallery, calendar.
+Kinds: chats, memory, skills, tasks, documents, gallery.
 """
 
 import json
@@ -21,15 +21,12 @@ from core.database import (
     Session as DbSession,
     ChatMessage as DbChatMessage,
     Memory,
-    Note,
     ScheduledTask,
     TaskRun,
     Document,
     DocumentVersion,
     GalleryImage,
     GalleryAlbum,
-    CalendarEvent,
-    CalendarCal,
 )
 from src.constants import DATA_DIR
 
@@ -123,12 +120,6 @@ def setup_admin_wipe_routes(session_manager):
                         pass
                 return {"status": "deleted", "kind": kind, "count": count}
 
-            if kind == "notes":
-                count = db.query(Note).count()
-                db.query(Note).delete()
-                db.commit()
-                return {"status": "deleted", "kind": kind, "count": count}
-
             if kind == "tasks":
                 # TaskRun rows reference tasks via FK — clear them first.
                 db.query(TaskRun).delete()
@@ -153,14 +144,6 @@ def setup_admin_wipe_routes(session_manager):
                 # Also drop the upload dir so disk doesn't keep orphans.
                 _rmtree_quiet(os.path.join(DATA_DIR, "gallery"))
                 _rmtree_quiet(os.path.join(DATA_DIR, "gallery_uploads"))
-                return {"status": "deleted", "kind": kind, "count": count}
-
-            if kind == "calendar":
-                # Events FK calendars — clear children first, then both.
-                db.query(CalendarEvent).delete()
-                count = db.query(CalendarCal).count()
-                db.query(CalendarCal).delete()
-                db.commit()
                 return {"status": "deleted", "kind": kind, "count": count}
 
             raise HTTPException(400, f"Unknown wipe kind: {kind!r}")

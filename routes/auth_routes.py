@@ -295,7 +295,7 @@ def setup_auth_routes(auth_manager: AuthManager) -> APIRouter:
 
         # Usernames are ownership keys for user data. Rename the common
         # owner-scoped DB rows before changing auth so the account keeps
-        # access to its sessions, docs, email accounts, tasks, etc.
+        # access to its sessions, docs, accounts, tasks, etc.
         try:
             from sqlalchemy import func
             from core.database import Base, SessionLocal

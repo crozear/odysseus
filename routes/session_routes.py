@@ -146,8 +146,6 @@ _HIDDEN_SYSTEM_SESSION_NAMES = {
     "[Task] Documents Tidy",
     "[Task] Memory Tidy",
     "[Task] Research Tidy",
-    "[Task] Email Mark Boundaries",
-    "[Task] Email Tags",
     "[Task] Skills Audit",
 }
 
@@ -331,7 +329,7 @@ def setup_session_routes(session_manager: SessionManager, config: dict, webhook_
         if skip_val:
             # skip_validation = trust the caller and do NOT probe /v1/models.
             # Used for custom endpoints AND for bare placeholder sessions with no
-            # model at all (e.g. an email reply draft just needs a session to live
+            # model at all (e.g. a placeholder draft just needs a session to live
             # in). Probing here was 400-ing those with "Cannot reach /v1/models".
             pass
         elif not model_to_use:

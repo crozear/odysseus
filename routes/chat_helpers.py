@@ -843,7 +843,7 @@ def run_post_response_tasks(
         ))
 
     # Skill extraction from complex agent runs. Only when the user actually
-    # chose agent mode — not a chat we auto-escalated for a notes/calendar
+    # chose agent mode — not a chat we auto-escalated for a notes
     # intent, and never in incognito/compare.
     auto_skills_enabled = bool(uprefs.get("auto_skills", True))
     # Quiet by default — full gate/dispatch/start trace runs at DEBUG so

@@ -173,25 +173,12 @@ if AUTH_ENABLED:
         "/login",
     }
     AUTH_EXEMPT_PREFIXES = ["/static"]
-    # Dynamic paths whose own handler proves identity via a path-embedded
-    # secret instead of the session/bearer auth. The route handler at
-    # routes/task_routes.py validates the per-task `webhook_token` itself
-    # and returns 404 on mismatch, so the path is the credential — the
-    # UI labels these URLs "no auth needed" precisely because external
-    # callers (Zapier, n8n, curl) can't supply a session cookie. Without
-    # this exemption AuthMiddleware rejects every POST with 401 before
-    # the token is ever checked.
-    import re as _re
-    AUTH_EXEMPT_PATTERNS = [
-        _re.compile(r"^/api/tasks/[^/]+/webhook/[^/]+/?$"),
-    ]
-
     def _is_auth_exempt(path: str) -> bool:
         if path in AUTH_EXEMPT_EXACT:
             return True
         if any(path.startswith(p) for p in AUTH_EXEMPT_PREFIXES):
             return True
-        return any(p.match(path) for p in AUTH_EXEMPT_PATTERNS)
+        return False
 
     # In-memory token cache: prefix → list[(token_id, token_hash, owner, scopes)]. The DB
     # query was running on every API-bearer request and scanning bcrypt
@@ -266,7 +253,7 @@ if AUTH_ENABLED:
                     # Impersonation: when the agent's loopback call sets
                     # X-Odysseus-Owner, attribute the request to that user only
                     # if they exist. Authorization checks remain separate; this
-                    # is just owner attribution for notes/calendar/etc.
+                    # is just owner attribution for notes/tasks/etc.
                     _impersonate = (request.headers.get("X-Odysseus-Owner") or "").strip()
                     _auth_mgr = getattr(request.app.state, "auth_manager", None) or auth_manager
                     if _impersonate and _impersonate in getattr(_auth_mgr, "users", {}):
@@ -616,21 +603,14 @@ app.include_router(setup_gallery_routes())
 from routes.editor_draft_routes import setup_editor_draft_routes
 app.include_router(setup_editor_draft_routes())
 
-# Scheduled tasks + event bus
+# Scheduled tasks (internal automation — no user-facing task CRUD)
 from src.task_scheduler import TaskScheduler
 task_scheduler = TaskScheduler(session_manager)
 from src.event_bus import set_task_scheduler
 set_task_scheduler(task_scheduler)
-from routes.task_routes import setup_task_routes
-app.include_router(setup_task_routes(task_scheduler))
 
 from routes.assistant_routes import setup_assistant_routes
 app.include_router(setup_assistant_routes(task_scheduler))
-
-# Calendar (CalDAV)
-from routes.calendar_routes import setup_calendar_routes
-calendar_router = setup_calendar_routes()
-app.include_router(calendar_router)
 
 # Shell (user-facing command execution)
 from routes.shell_routes import setup_shell_routes
@@ -687,35 +667,12 @@ app.include_router(setup_api_token_routes())
 
 logger.info("Webhook & API token routes initialized")
 
-# Notes (Google Keep-style notes/todos)
-from routes.note_routes import setup_note_routes
-app.include_router(setup_note_routes(task_scheduler))
-
-# Email
-from routes.email_routes import setup_email_routes
-email_router = setup_email_routes()
-app.include_router(email_router)
-
-# Codex integration — HTTP surface for the Codex plugin/MCP bridge. Reuses
-# api_token scopes (todos:read|write, email:read|draft|send) so external
-# Codex sessions can only touch the data the user explicitly allowed. Mounted
-# AFTER email so the codex_routes can borrow the email router for shared
-# search/threading helpers.
-from routes.codex_routes import setup_codex_routes, setup_claude_routes
-app.include_router(setup_codex_routes(
-    email_router=email_router,
-    memory_router=memory_router,
-    calendar_router=calendar_router,
-    document_router=document_router,
-))
+# Codex integration — Claude Code skill bundle download endpoint
+from routes.codex_routes import setup_claude_routes
 app.include_router(setup_claude_routes())
 
 from routes.vault_routes import setup_vault_routes
 app.include_router(setup_vault_routes())
-
-# Contacts (CardDAV)
-from routes.contacts_routes import setup_contacts_routes
-app.include_router(setup_contacts_routes())
 
 from companion import setup_companion_routes
 app.include_router(setup_companion_routes())
@@ -740,24 +697,8 @@ async def serve_index(request: Request):
         return _serve_html_with_nonce(request, root_path)
     raise HTTPException(404, "index.html not found")
 
-@app.get("/notes")
-async def serve_notes(request: Request):
-    return await serve_index(request)
-
-@app.get("/calendar")
-async def serve_calendar(request: Request):
-    return await serve_index(request)
-
-# Per-tool deep-link routes — all serve the same SPA, the JS auto-opens
-# the matching modal based on window.location.pathname. Each route also
-# gets a unique favicon + page title via inline script in index.html so
-# bookmarks render with tool-specific icons.
 @app.get("/cookbook")
 async def serve_cookbook(request: Request):
-    return await serve_index(request)
-
-@app.get("/email")
-async def serve_email(request: Request):
     return await serve_index(request)
 
 @app.get("/memory")
@@ -766,10 +707,6 @@ async def serve_memory(request: Request):
 
 @app.get("/gallery")
 async def serve_gallery(request: Request):
-    return await serve_index(request)
-
-@app.get("/tasks")
-async def serve_tasks(request: Request):
     return await serve_index(request)
 
 @app.get("/library")
@@ -1008,7 +945,7 @@ async def _startup_event():
 
     # Start scheduled task runner — skip when running under a cron-driven
     # deployment where an external worker drives task firing. Mirrors
-    # `ODYSSEUS_INPROCESS_POLLERS` from the email pollers.
+    # `ODYSSEUS_INPROCESS_POLLERS` from the legacy background pollers.
     _tasks_inprocess = os.environ.get("ODYSSEUS_INPROCESS_TASKS", "1").strip().lower()
     if _tasks_inprocess not in ("0", "false", "no", "off", ""):
         await task_scheduler.start()

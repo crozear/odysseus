@@ -11,7 +11,7 @@ as CommonJS by node and rejects the ES `export`s. escMenuStack.js has no
 imports of its own, so inlining is exact.
 
 Background: ad-hoc dropdowns/popups (document-library card menus, chat context
-popups, cookbook serve menus, calendar event menus, compare pane menus) live
+popups, cookbook serve menus, compare pane menus) live
 outside the .modal system, so the global Escape arbiter in ui.js couldn't see
 them. They register a dismiss callback here while open; the arbiter calls
 dismissTopMenu() to close the most-recently-opened one. These tests lock in the

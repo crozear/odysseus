@@ -18,9 +18,7 @@ A self-hosted AI workspace -- meant to be the self-hosted version of the UI expe
   - **Compare** -- a fun tool to compare models side by side. Test completely blind, no bias!<br>　<sub>multi-model · blind test · synthesis</sub>
   - **Documents** -- YOU write the text, AI is there to assist, not the opposite.<br>　<sub>multi-tab editor · markdown · HTML · CSV · syntax highlighting · AI edits · suggestions</sub>
   - **Memory / Skills** -- Persistent memory and skills, your agent evolves over time as it better understands you and your tasks!<br>　<sub>ChromaDB · fastembed (ONNX) · vector + keyword retrieval · import/export</sub>
-  - **Email** -- IMAP/SMTP inbox with AI triage built in: urgency reminders, auto-tag, auto-summary, auto-reply drafts, auto-spam.<br>　<sub>IMAP · SMTP · per-account routing · CalDAV-aware</sub>
-  - **Notes & Tasks** -- Quick notes with reminders, a todo list, and scheduled tasks the agent can act on.<br>　<sub>note pings · checklist · cron-style tasks · ntfy / browser / email channels</sub>
-  - **Calendar** -- Local-first calendar with CalDAV sync to Radicale / Nextcloud / Apple / Fastmail.<br>　<sub>CalDAV pull · .ics import/export · per-calendar colors · agent-aware</sub>
+  - **Notes & Tasks** -- Quick notes with reminders, a todo list, and scheduled tasks the agent can act on.<br>　<sub>note pings · checklist · cron-style tasks · ntfy / browser / webhook channels</sub>
   - **Works on mobile** -- looks and runs great on your phone, not just desktop.<br>　<sub>responsive · installable (PWA) · touch gestures</sub>
   - **Extras** -- more to explore, happy if you give it a go!<br>　<sub>image editor · theme editor · file uploads (vision + PDF) · web search · presets · sessions · 2FA</sub>
 
@@ -45,7 +43,7 @@ A full, hover-to-play tour lives on the landing page (`docs/index.html`).
 
 ## Quick Start
 
-Defaults work out of the box: clone, run, then configure models/search/email
+Defaults work out of the box: clone, run, then configure models/search
 inside **Settings**. Only edit `.env` for deployment-level overrides like
 `APP_BIND`, `APP_PORT`, `AUTH_ENABLED`, `DATABASE_URL`, or a pre-seeded admin password.
 
@@ -284,7 +282,7 @@ If `python` points at an older interpreter, use `py -3.12` (or another installed
 3.11+ version) for the venv step.
 
 **Requirements:** Python 3.11+. The core app (chat, agent, memory, documents,
-email, calendar, deep research) runs fully native. For full **Cookbook** background
+deep research) runs fully native. For full **Cookbook** background
 model downloads and the agent shell tool, also install
 [Git for Windows](https://git-scm.com/download/win) (provides `bash.exe`).
 Local GPU *serving* of vLLM/SGLang needs Linux/WSL2; for a local model on Windows,
@@ -317,7 +315,7 @@ To expose Odysseus on a local network or Tailscale with HTTPS:
    ```bash
    python -m uvicorn app:app --host 0.0.0.0 --port 7000 --ssl-certfile=cert.pem --ssl-keyfile=key.pem
    ```
-4. Install the `mkcert` CA on any other device you want to access Odysseus from (e.g., for iOS, email the `rootCA.pem` to yourself, install the profile, and trust it in Certificate Trust Settings).
+4. Install the `mkcert` CA on any other device you want to access Odysseus from (e.g., for iOS, AirDrop or transfer the `rootCA.pem` to yourself, install the profile, and trust it in Certificate Trust Settings).
 
 ### Optional Dependencies
 `requirements-optional.txt` contains packages that unlock extra features. It is not installed by default.
@@ -330,7 +328,7 @@ To expose Odysseus on a local network or Tailscale with HTTPS:
 | `markitdown` | Office/EPUB document text extraction (converts .docx/.xlsx/.pptx/.xls/.epub to Markdown). |
 
 ## Security Notes
-Odysseus is a self-hosted workspace with powerful local tools: shell access, file uploads, model downloads, web research, email/calendar integrations, and API tokens. Treat it like an admin console.
+Odysseus is a self-hosted workspace with powerful local tools: shell access, file uploads, model downloads, web research, and API tokens. Treat it like an admin console.
 
 - Keep `AUTH_ENABLED=true` for any network-accessible deployment.
 - Keep `LOCALHOST_BYPASS=false` outside local development.

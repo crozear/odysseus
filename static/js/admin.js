@@ -1123,7 +1123,7 @@ function initEndpointForm() {
 const _GOOGLE_OAUTH_HELP = `To get Google OAuth credentials:
 1. Go to console.cloud.google.com
 2. Click the project dropdown (top left) > New Project > name it > Create
-3. APIs & Services > Library > enable the API you need (Gmail, Calendar, Drive, etc.)
+3. APIs & Services > Library > enable the API you need (e.g. Drive)
 4. APIs & Services > OAuth consent screen > configure (External, app name + email)
 5. Under Audience, click Add Users > add your Google email as a test user
 6. APIs & Services > Credentials > + Create Credentials > OAuth Client ID > Desktop App
@@ -1150,32 +1150,6 @@ const MCP_PRESETS = [
 7. Copy the Client ID and Client Secret into the fields above
 8. Click Add Server, then click the Authorize button
 9. Sign in with Google, copy the URL from the error page, paste it back` },
-  { name: "Email (IMAP/SMTP)", command: "npx", args: ["-y", "@codefuturist/email-mcp", "stdio"],        env: { MCP_EMAIL_ADDRESS: "", MCP_EMAIL_PASSWORD: "", MCP_EMAIL_IMAP_HOST: "", MCP_EMAIL_SMTP_HOST: "" },
-    providerDropdown: {
-      label: "Provider",
-      targets: { MCP_EMAIL_IMAP_HOST: "imap", MCP_EMAIL_SMTP_HOST: "smtp" },
-      options: [
-        { name: "Migadu",        imap: "imap.migadu.com",     smtp: "smtp.migadu.com" },
-        { name: "Fastmail",      imap: "imap.fastmail.com",   smtp: "smtp.fastmail.com" },
-        { name: "Proton Bridge", imap: "127.0.0.1",           smtp: "127.0.0.1" },
-        { name: "Outlook/Hotmail", imap: "outlook.office365.com", smtp: "smtp.office365.com" },
-        { name: "Yahoo",         imap: "imap.mail.yahoo.com", smtp: "smtp.mail.yahoo.com" },
-        { name: "iCloud",        imap: "imap.mail.me.com",    smtp: "smtp.mail.me.com" },
-        { name: "Zoho",          imap: "imap.zoho.com",       smtp: "smtp.zoho.com" },
-        { name: "Custom",        imap: "",                    smtp: "" },
-      ],
-    },
-    help: "Works with any IMAP/SMTP email provider.\n1. Pick your provider from the dropdown (or choose Custom)\n2. Enter your email address and password (or app password)\n3. Click Add Server" },
-  { name: "CalDAV (Radicale/Nextcloud)", command: "npx", args: ["-y", "caldav-mcp"],                     env: { CALDAV_BASE_URL: "http://localhost:5232", CALDAV_USERNAME: "", CALDAV_PASSWORD: "" },
-    help: "Works with any CalDAV server (Radicale, Nextcloud, etc.).\n1. Enter your CalDAV server URL (e.g. http://localhost:5232)\n2. Enter your username and password\n3. Click Add Server" },
-  { name: "Google Calendar", command: "npx", args: ["-y", "@cocal/google-calendar-mcp"],                 env: { GOOGLE_OAUTH_CREDENTIALS: "" },
-    help: `Setup:
-1. Go to console.cloud.google.com > create/select a project
-2. APIs & Services > Library > enable Google Calendar API
-3. APIs & Services > Credentials > + Create Credentials > OAuth Client ID
-4. Application type: Desktop App > Create
-5. Click "Download JSON" on the credential you just created
-6. Set Google Oauth Credentials to the full path of the downloaded JSON file` },
   { name: "Google Drive",    command: "npx", args: ["-y", "@modelcontextprotocol/server-gdrive"],        env: {},
     help: "Google Drive uses browser-based OAuth on first run. No env vars needed — just click Add and authorize when prompted." },
   { name: "GitHub",          command: "npx", args: ["-y", "@modelcontextprotocol/server-github"],        env: { GITHUB_PERSONAL_ACCESS_TOKEN: "" },
@@ -1528,7 +1502,6 @@ function initMcpForm() {
     if (!keys.length) return;
     _envKeys = keys;
 
-    // Provider dropdown (e.g. for Email IMAP/SMTP)
     if (preset?.providerDropdown) {
       const pd = preset.providerDropdown;
       const row = document.createElement('div');
@@ -1958,56 +1931,6 @@ async function loadFeatures() {
   } catch (e) { container.innerHTML = '<div class="admin-error">Failed to load features</div>'; }
 }
 
-/* ── CalDAV Config ── */
-function initCalDAV() {
-  const urlIn = el('caldav-url');
-  const userIn = el('caldav-user');
-  const passIn = el('caldav-pass');
-  const saveBtn = el('caldav-save-btn');
-  const testBtn = el('caldav-test-btn');
-  const status = el('caldav-status');
-  if (!urlIn || !saveBtn) return;
-
-  // Load current config
-  fetch(`${API_BASE}/api/calendar/config`, { credentials: 'same-origin' })
-    .then(r => r.json()).then(d => {
-      urlIn.value = d.caldav_url || '';
-      userIn.value = d.caldav_username || '';
-      passIn.value = d.caldav_password || '';
-    }).catch(() => {});
-
-  saveBtn.addEventListener('click', async () => {
-    status.textContent = 'Saving...';
-    try {
-      const res = await fetch(`${API_BASE}/api/calendar/config`, {
-        method: 'POST', credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ caldav_url: urlIn.value, caldav_username: userIn.value, caldav_password: passIn.value }),
-      });
-      const d = await res.json();
-      status.textContent = d.ok ? 'Saved' : 'Error';
-      status.style.color = d.ok ? 'var(--green)' : 'var(--red)';
-    } catch (e) { status.textContent = 'Error'; status.style.color = 'var(--red)'; }
-    setTimeout(() => { status.textContent = ''; status.style.color = ''; }, 3000);
-  });
-
-  testBtn.addEventListener('click', async () => {
-    status.textContent = 'Testing...';
-    try {
-      // Save first
-      await fetch(`${API_BASE}/api/calendar/config`, {
-        method: 'POST', credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ caldav_url: urlIn.value, caldav_username: userIn.value, caldav_password: passIn.value }),
-      });
-      const res = await fetch(`${API_BASE}/api/calendar/test`, { method: 'POST', credentials: 'same-origin' });
-      const d = await res.json();
-      status.textContent = d.ok ? `Connected (${d.calendars} calendars)` : `Failed: ${d.error}`;
-      status.style.color = d.ok ? 'var(--green)' : 'var(--red)';
-    } catch (e) { status.textContent = 'Error'; status.style.color = 'var(--red)'; }
-    setTimeout(() => { status.textContent = ''; status.style.color = ''; }, 5000);
-  });
-}
 
 /* ── Data Backup (export/import) ── */
 function initBackup() {
@@ -2067,7 +1990,7 @@ function initDangerZone() {
   const _LABELS = {
     chats: 'chats', memory: 'memory entries', skills: 'skills',
     notes: 'notes', tasks: 'tasks', documents: 'documents',
-    gallery: 'gallery images', calendar: 'calendar items',
+    gallery: 'gallery images',
   };
   const _wipeMsg = el('adm-wipeMsg');
   modalEl.querySelectorAll('[data-wipe-kind]').forEach(btn => {
@@ -2099,7 +2022,7 @@ function initDangerZone() {
    ═══════════════════════════════════════════ */
 function initAll() {
   modalEl = el('settings-modal');
-  const inits = [initSignupToggle, initAddUser, initEndpointForm, initMcpForm, initCalDAV, initBackup, initDangerZone, () => settingsModule.initIntegrations()];
+  const inits = [initSignupToggle, initAddUser, initEndpointForm, initMcpForm, initBackup, initDangerZone, () => settingsModule.initIntegrations()];
   for (const fn of inits) {
     try { fn(); } catch (e) { console.error('Admin init error in', fn.name || 'anonymous', e); }
   }

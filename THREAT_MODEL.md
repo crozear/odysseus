@@ -4,7 +4,7 @@ Odysseus is a **self-hosted AI workspace with privileged local access**. This do
 
 ## Trust Boundary
 
-Odysseus is designed for **trusted users on a private network**, not public exposure. The README describes it as "treat it like an admin console" — that framing is accurate. A logged-in admin can execute shell commands, read and write files, send email, and control model serving. This is intentional. The threat model does not try to prevent admins from doing these things. It does try to prevent:
+Odysseus is designed for **trusted users on a private network**, not public exposure. The README describes it as "treat it like an admin console" — that framing is accurate. A logged-in admin can execute shell commands, read and write files, and control model serving. This is intentional. The threat model does not try to prevent admins from doing these things. It does try to prevent:
 
 - Unauthenticated access
 - Non-admins reaching admin-only capabilities
@@ -23,9 +23,7 @@ Odysseus is designed for **trusted users on a private network**, not public expo
 | Memory management | ✓ | ✓ |
 | Shell / Python execution | ✓ | ✗ |
 | File read / write | ✓ | ✗ |
-| Email send / read | ✓ | ✗ |
 | MCP tools | ✓ | ✗ |
-| Calendar management | ✓ | ✗ |
 | Token / webhook management | ✓ | ✗ |
 | Model serving | ✓ | ✗ |
 | Vault | ✓ | ✗ |

@@ -2,8 +2,7 @@
 # Entrypoint that fixes the #1 self-host footgun: a Docker container
 # that runs as root writes root-owned files into bind-mounted host
 # volumes, and the host user (or a non-root service user) then can't
-# update them — silently breaking skill extraction, prefs saves, mail
-# attachments, etc.
+# update them — silently breaking skill extraction, prefs saves
 #
 # Standard PUID/PGID pattern: pick the UID/GID we should drop to,
 # chown the writable bind-mounts so existing root-owned content gets

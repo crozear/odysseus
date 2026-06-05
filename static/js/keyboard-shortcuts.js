@@ -9,8 +9,8 @@ const _defaultKeybinds = {
   fav_session: 'ctrl+alt+f', delete_session: 'ctrl+alt+d',
   cancel: 'escape', tts: 'alt+shift+t',
   incognito: 'ctrl+alt+i', settings: 'ctrl+,', focus_input: 'ctrl+/',
-  // Open-tool shortcuts (Calendar bound by default; rest unbound).
-  open_calendar: 'ctrl+alt+c', open_compare: '', open_cookbook: '',
+  // Open-tool shortcuts (all unbound by default).
+  open_compare: '', open_cookbook: '',
   open_research: '', open_gallery: '', open_library: '', open_memory: '',
   open_notes: '', open_tasks: '', open_theme: '',
 };
@@ -67,7 +67,7 @@ export function initKeyboardShortcuts(modules) {
   // re-renders). So a single global handler that clicks whichever cancel
   // button is currently visible covers all of them — notes, skills,
   // memory, gallery, sessions, doc library (chats/archive/research/docs),
-  // email, cookbook serve — without each module wiring its own listener.
+  // cookbook serve — without each module wiring its own listener.
   // Capture phase + stopPropagation so Esc cancels select instead of
   // closing the surrounding modal.
   document.addEventListener('keydown', (e) => {
@@ -94,7 +94,7 @@ export function initKeyboardShortcuts(modules) {
 
   // ── "Toggle Window" — close whatever tool window is open, or reopen the
   // last one. Maps each window's modal element to the button/title that
-  // opens it (mirrors modalManager's _AUTO_WIRE, plus email's section title).
+  // opens it (mirrors modalManager's _AUTO_WIRE).
   const _WINDOW_TRIGGERS = {
     'settings-modal':         'user-bar-settings',
     'theme-modal':            'tool-theme-btn',
@@ -106,8 +106,6 @@ export function initKeyboardShortcuts(modules) {
     'research-overlay':       'tool-research-btn',
     'cookbook-modal':         'tool-cookbook-btn',
     'compare-model-overlay':  'tool-compare-btn',
-    'calendar-modal':         'tool-calendar-btn',
-    'email-lib-modal':        'email-section-title',
   };
   let _lastWindow = 'settings-modal';
 
@@ -263,7 +261,6 @@ export function initKeyboardShortcuts(modules) {
     // Open-tool shortcuts — click the sidebar tool button so each tool's
     // own open/toggle logic runs. Unbound (empty) combos never match.
     const _toolBtns = {
-      open_calendar: 'tool-calendar-btn',
       open_compare:  'tool-compare-btn',
       open_cookbook: 'tool-cookbook-btn',
       open_research: 'tool-research-btn',
