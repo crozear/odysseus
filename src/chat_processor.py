@@ -249,8 +249,8 @@ class ChatProcessor:
                         rag_content = "Relevant documents:\n\n" + "\n\n---\n\n".join(
                             f"[{s['filename']}]\n{r['document']}" for s, r in zip(rag_sources, relevant)
                         )
-                        if len(rag_content) > 10000:
-                            rag_content = rag_content[:10000] + "\n[Truncated]"
+                        if len(rag_content) > 32768:
+                            rag_content = rag_content[:32768] + "\n[Truncated]"
                         preface.append(rag_content)
             except Exception as e:
                 logger.warning(f"RAG retrieval failed: {e}")
@@ -280,7 +280,7 @@ class ChatProcessor:
             for url in non_yt_urls:
                 result = fetch_webpage_content(url)
                 if result.get('success'):
-                    content = result.get('content', '')[:10000]
+                    content = result.get('content', '')[:32768]
                     preface.append(
                         f"Content from {url}:\n\n{content}",
                     )

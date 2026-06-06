@@ -175,8 +175,8 @@ async def do_chat_with_model(content: str, session_id: Optional[str] = None, own
             timeout=AI_CHAT_TIMEOUT,
         )
         # Truncate very long responses
-        if len(response) > 10000:
-            response = response[:10000] + "\n... (truncated)"
+        if len(response) > 32768:
+            response = response[:32768] + "\n... (truncated)"
         return {"model": model, "response": response}
     except Exception as e:
         logger.error(f"chat_with_model failed: {e}")
@@ -362,8 +362,8 @@ async def do_second_opinion(content: str, session_id: Optional[str] = None, owne
                 headers=original_headers,
                 timeout=AI_CHAT_TIMEOUT,
             )
-            if len(unified) > 10000:
-                unified = unified[:10000] + "\n... (truncated)"
+            if len(unified) > 32768:
+                unified = unified[:32768] + "\n... (truncated)"
         except Exception as e:
             logger.error(f"second_opinion unify call failed: {e}")
             unified = f"(Failed to get unified response: {e})"
@@ -567,8 +567,8 @@ async def do_send_to_session(content: str, session_id: Optional[str] = None, own
         sess.add_message(ChatMessage("assistant", response))
 
         # Truncate for tool output
-        if len(response) > 10000:
-            response = response[:10000] + "\n... (truncated)"
+        if len(response) > 32768:
+            response = response[:32768] + "\n... (truncated)"
 
         return {
             "session_id": target_sid,

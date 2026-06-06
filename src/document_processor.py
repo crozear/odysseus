@@ -39,7 +39,7 @@ def _process_text_file(path: str) -> str:
     filename = os.path.basename(path)
     _, ext = os.path.splitext(path.lower())
     language = language_map.get(ext, "text")
-    max_len = 30000 if ext != ".log" else 10000
+    max_len = 98304 if ext != ".log" else 32768
 
     try:
         from src.personal_docs import read_text_file
