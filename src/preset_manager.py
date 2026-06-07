@@ -63,6 +63,8 @@ Use precise language. Show causal relationships explicitly. Quantify uncertainty
             "system_prompt": "",
             "inject_prefix": "",
             "inject_suffix": "",
+            "user_persona_name": "",
+            "user_persona_prompt": "",
             "enabled": False,
         }
     }
@@ -143,6 +145,8 @@ Use precise language. Show causal relationships explicitly. Quantify uncertainty
         top_p=None,
         top_k=None,
         stream: bool = True,
+        user_persona_name: str = "",
+        user_persona_prompt: str = "",
     ) -> bool:
         """Update the custom preset"""
         self.presets["custom"] = {
@@ -156,6 +160,8 @@ Use precise language. Show causal relationships explicitly. Quantify uncertainty
             "system_prompt": system_prompt,
             "inject_prefix": inject_prefix,
             "inject_suffix": inject_suffix,
+            "user_persona_name": user_persona_name,
+            "user_persona_prompt": user_persona_prompt,
             "enabled": enabled,
         }
         return self.save(self.presets)

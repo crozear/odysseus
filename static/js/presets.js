@@ -152,6 +152,64 @@ export const PROMPT_TEMPLATES = [
 
 let userTemplates = [];
 
+// ── Custom-preset content helpers ─────────────────────────────────────────
+// The single `custom` preset now holds TWO independent personas (AI + user)
+// plus plain tuning/inject. These helpers report what content remains so a
+// per-persona X / Cancel can keep the other persona alive instead of wiping
+// the whole preset.
+function _customHasUserPersona(c) {
+  return !!(c && (c.user_persona_name || c.user_persona_prompt));
+}
+function _customHasAiSide(c) {
+  if (!c) return false;
+  const t = parseFloat(c.temperature);
+  const hasTuning = (!isNaN(t) && t !== 1.0)
+    || (!!c.max_tokens && c.max_tokens !== 0)
+    || (c.top_p != null) || (c.top_k != null) || (c.stream === false);
+  const hasInject = !!(c.inject_prefix || c.inject_suffix);
+  return !!(c.character_name || c.system_prompt || hasTuning || hasInject);
+}
+/** Persist the current presets.custom to the backend (name = AI character name). */
+function _persistCustom() {
+  if (!presets.custom) return;
+  fetch(`${API_BASE}/api/presets/custom`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...presets.custom, name: presets.custom.character_name || '' }),
+  }).catch(() => {});
+}
+function _syncMiniBtn() {
+  const miniBtn = document.getElementById('overflow-preset-btn');
+  if (miniBtn) miniBtn.classList.toggle('active', !!(presets.custom && presets.custom.enabled));
+}
+/** Clear ONLY the user persona; keep the AI side active if it has content. */
+function _clearUserPersona() {
+  if (!presets.custom || window._persistentChatSession) return;
+  presets.custom = { ...presets.custom, user_persona_name: '', user_persona_prompt: '' };
+  const stillOn = _customHasAiSide(presets.custom);
+  presets.custom.enabled = stillOn;
+  selectedPreset = stillOn ? 'custom' : null;
+  _persistCustom();
+  _syncCharIndicator();
+  _syncMiniBtn();
+}
+/** Clear ONLY the AI side (persona + tuning/inject); keep the user persona if set. */
+function _clearAiSide() {
+  if (!presets.custom || window._persistentChatSession) return;
+  presets.custom = {
+    ...presets.custom,
+    character_name: '', system_prompt: '',
+    temperature: 1.0, max_tokens: 0, top_p: null, top_k: null, stream: true,
+    inject_prefix: '', inject_suffix: '',
+  };
+  const stillOn = _customHasUserPersona(presets.custom);
+  presets.custom.enabled = stillOn;
+  selectedPreset = stillOn ? 'custom' : null;
+  _persistCustom();
+  _syncCharIndicator();
+  _syncMiniBtn();
+}
+
 /**
  * Initialize with dependencies
  */
@@ -160,6 +218,7 @@ export function init(apiBase) {
   initCharTabs();
   initEnabledToggle();
   initNameDropdown();
+  initUserDropdown();
   initResetButton();
   initSaveAsTemplate();
   initExpandButton();
@@ -180,11 +239,18 @@ function initCharTabs() {
 }
 
 function initExpandButton() {
-  const btn = document.getElementById('char-expand-btn');
+  // Wire the AI persona Expand and the User persona Expand identically — both
+  // turn rough notes into a fuller persona via /api/presets/expand.
+  _wireExpand('char-expand-btn', 'custom-character-name', 'custom-system-prompt');
+  _wireExpand('user-expand-btn', 'user-persona-name', 'user-persona-prompt');
+}
+
+function _wireExpand(btnId, nameId, promptId) {
+  const btn = document.getElementById(btnId);
   if (!btn) return;
   btn.addEventListener('click', async () => {
-    const nameInput = document.getElementById('custom-character-name');
-    const promptInput = document.getElementById('custom-system-prompt');
+    const nameInput = document.getElementById(nameId);
+    const promptInput = document.getElementById(promptId);
     const name = nameInput ? nameInput.value.trim() : '';
     const draft = promptInput ? promptInput.value.trim() : '';
     if (!name && !draft) return;
@@ -354,6 +420,103 @@ function initNameDropdown() {
   }
 }
 
+/**
+ * User-persona dropdown — mirrors initNameDropdown() but writes into the
+ * user-persona fields. Draws from the SAME shared template pool so a saved
+ * persona is interchangeable between the AI and User tabs.
+ */
+function initUserDropdown() {
+  const select = document.getElementById('user-template-select');
+  const delBtn = document.getElementById('user-delete-template-btn');
+  if (!select) return;
+
+  const nameInput = () => document.getElementById('user-persona-name');
+  const promptInput = () => document.getElementById('user-persona-prompt');
+
+  const newBtn = document.getElementById('user-new-btn');
+  if (newBtn) {
+    newBtn.addEventListener('click', () => {
+      select.value = '__default__';
+      select.dispatchEvent(new Event('change'));
+      const ni = nameInput();
+      if (ni) { ni.value = ''; ni.focus(); }
+    });
+  }
+
+  const resetBtn = document.getElementById('reset-user-btn');
+  if (resetBtn) {
+    resetBtn.addEventListener('click', () => {
+      select.value = '__default__';
+      select.dispatchEvent(new Event('change'));
+    });
+  }
+
+  select.addEventListener('change', () => {
+    const val = select.value;
+    const ni = nameInput();
+    const pi = promptInput();
+    if (!val || val === '__default__') {
+      if (ni) ni.value = '';
+      if (pi) pi.value = '';
+      if (delBtn) delBtn.style.display = 'none';
+      return;
+    }
+    const isSaved = userTemplates.find(t => t.name === val);
+    const builtin = PROMPT_TEMPLATES.find(t => t.name === val);
+    const hasName = isSaved || (builtin && builtin.isCharacter && !builtin.noName);
+    if (ni) ni.value = hasName ? val : '';
+    _tryLoadUserTemplate(val);
+    const isPreset = builtin && builtin.isPreset;
+    if (delBtn) delBtn.style.display = (isSaved || (builtin && !isPreset)) ? '' : 'none';
+  });
+
+  if (delBtn) {
+    delBtn.addEventListener('click', async () => {
+      const nm = select.value;
+      if (!nm || nm === '__default__') return;
+      const match = userTemplates.find(t => t.name === nm);
+      const isBuiltin = PROMPT_TEMPLATES.some(t => t.name === nm);
+      if (!await window.styledConfirm(`Delete "${nm}"?\n\nThis removes the saved persona.`, { confirmText: 'Delete', danger: true })) return;
+      try {
+        // Shared pool: same delete the AI tab does, but WITHOUT touching
+        // character memories (those are keyed to AI characters, not user personas).
+        if (match) await fetch(`${API_BASE}/api/presets/templates/${match.id}`, { method: 'DELETE' });
+        if (isBuiltin) {
+          const hidden = loadStoredArray('odysseus-hidden-presets');
+          if (!hidden.includes(nm)) hidden.push(nm);
+          localStorage.setItem('odysseus-hidden-presets', JSON.stringify(hidden));
+        }
+        // Deactivate if this was the active user persona
+        if (presets.custom && presets.custom.user_persona_name === nm) {
+          presets.custom = { ...presets.custom, user_persona_name: '', user_persona_prompt: '' };
+          const stillOn = _customHasAiSide(presets.custom);
+          presets.custom.enabled = stillOn;
+          selectedPreset = stillOn ? 'custom' : null;
+        }
+        await loadUserTemplates();
+        select.value = '__default__';
+        select.dispatchEvent(new Event('change'));
+        setTimeout(() => { _syncCharIndicator(); }, 0);
+      } catch (e) { console.error('Delete user persona failed:', e); }
+    });
+  }
+}
+
+/** Load a shared template's prompt into the user-persona description field. */
+function _tryLoadUserTemplate(name) {
+  if (!name) return;
+  const pi = document.getElementById('user-persona-prompt');
+  const tmpl = userTemplates.find(t => t.name === name);
+  if (tmpl) {
+    if (pi) pi.value = tmpl.system_prompt || '';
+    const delBtn = document.getElementById('user-delete-template-btn');
+    if (delBtn) delBtn.style.display = '';
+    return;
+  }
+  const builtin = PROMPT_TEMPLATES.find(t => t.name === name);
+  if (builtin && pi) pi.value = builtin.prompt;
+}
+
 function _tryLoadTemplate(name) {
   if (!name) return;
   // Check user templates first, then built-in
@@ -393,8 +556,8 @@ function _tryLoadTemplate(name) {
   if (delBtn) delBtn.style.display = '';
 }
 
-function _populateCharSelect() {
-  const select = document.getElementById('char-template-select');
+function _populateCharSelect(selectId = 'char-template-select') {
+  const select = document.getElementById(selectId);
   if (!select) return;
   const currentVal = select.value;
   select.innerHTML = '<option value="__default__">Default (no persona)</option>';
@@ -462,7 +625,10 @@ async function loadUserTemplates() {
   } catch (e) {
     userTemplates = [];
   }
-  _populateCharSelect();
+  // Both persona dropdowns draw from the SAME pool so any saved persona is
+  // interchangeable between the AI Persona and User Persona tabs.
+  _populateCharSelect('char-template-select');
+  _populateCharSelect('user-template-select');
 }
 
 
@@ -603,8 +769,9 @@ export async function loadPresets(showError) {
       }
     }
 
-    // Auto-activate custom preset if enabled and has content
-    if (custom && custom.enabled !== false && (custom.character_name || custom.system_prompt)) {
+    // Auto-activate custom preset if enabled and has content (AI persona,
+    // plain prompt, OR a user persona on its own)
+    if (custom && custom.enabled !== false && (custom.character_name || custom.system_prompt || custom.user_persona_name || custom.user_persona_prompt)) {
       selectedPreset = 'custom';
       const miniBtn = document.getElementById('overflow-preset-btn');
       if (miniBtn) miniBtn.classList.add('active');
@@ -640,7 +807,7 @@ export function setActivePreset(presetId) {
 /**
  * Open custom preset modal
  */
-export function openCustomPresetModal() {
+export function openCustomPresetModal(initialTab) {
   const modal = document.getElementById('custom-preset-modal');
   if (!modal) return;
 
@@ -693,6 +860,18 @@ export function openCustomPresetModal() {
   if (prefixInput) prefixInput.value = savedConfig.inject_prefix || '';
   if (suffixInput) suffixInput.value = savedConfig.inject_suffix || '';
 
+  // Load user persona fields + sync its dropdown
+  const userNameInput = document.getElementById('user-persona-name');
+  const userPromptInput = document.getElementById('user-persona-prompt');
+  if (userNameInput) userNameInput.value = savedConfig.user_persona_name || '';
+  if (userPromptInput) userPromptInput.value = savedConfig.user_persona_prompt || '';
+  const userSelect = document.getElementById('user-template-select');
+  if (userSelect) {
+    const upName = savedConfig.user_persona_name || '';
+    if (upName) { userSelect.value = upName; if (userSelect.value !== upName) userSelect.value = ''; }
+    else userSelect.value = '__default__';
+  }
+
   // Track initial state to detect changes for dynamic button label
   const _snapshot = {
     name: nameInput ? nameInput.value : '',
@@ -702,6 +881,8 @@ export function openCustomPresetModal() {
     topP: topPInput ? topPInput.value : '1',
     topK: topKInput ? topKInput.value : '0',
     stream: streamInput ? streamInput.checked : true,
+    userName: userNameInput ? userNameInput.value : '',
+    userPrompt: userPromptInput ? userPromptInput.value : '',
   };
   function _updateStartBtn() {
     const btn = document.getElementById('save-custom-preset');
@@ -713,7 +894,9 @@ export function openCustomPresetModal() {
       || (tokensInput && tokensInput.value !== _snapshot.tokens)
       || (topPInput && topPInput.value !== _snapshot.topP)
       || (topKInput && topKInput.value !== _snapshot.topK)
-      || (streamInput && streamInput.checked !== _snapshot.stream);
+      || (streamInput && streamInput.checked !== _snapshot.stream)
+      || (userNameInput && userNameInput.value !== _snapshot.userName)
+      || (userPromptInput && userPromptInput.value !== _snapshot.userPrompt);
     // The footer button starts whichever of the three things the active tab
     // represents — a character chat, a group, or a plain tuned chat. Label
     // it so the action is obvious instead of a generic "Start".
@@ -725,6 +908,9 @@ export function openCustomPresetModal() {
       // Inject tab = a plain tuned "prompt" chat (prefix/suffix + temp/tokens),
       // no persona.
       label = 'Start Prompt';
+    } else if (activeTab === 'user') {
+      // User persona tab — a character the user is roleplaying as.
+      label = changed ? 'Save & Start User Persona' : 'Start User Persona';
     } else {
       // Character/persona tab. "Save & " prefix when the user edited a template,
       // so it's clear the edit is being saved on start.
@@ -737,14 +923,17 @@ export function openCustomPresetModal() {
     const cancelBtn = document.getElementById('cancel-custom-preset');
     if (cancelBtn) {
       const groupOn = !!(window.groupModule && window.groupModule.isActive && window.groupModule.isActive());
-      const featOn = activeTab === 'group' ? groupOn : !!(presets.custom && presets.custom.enabled);
+      let featOn;
+      if (activeTab === 'group') featOn = groupOn;
+      else if (activeTab === 'user') featOn = !!(presets.custom && presets.custom.enabled && _customHasUserPersona(presets.custom));
+      else featOn = !!(presets.custom && presets.custom.enabled);
       cancelBtn.style.display = featOn ? '' : 'none';
       cancelBtn.textContent = activeTab === 'group' ? 'Cancel group' : 'Cancel';
     }
     // Reset only makes sense on the character tab (it resets the persona).
     if (resetBtn) resetBtn.style.display = (changed && activeTab === 'character') ? '' : 'none';
   }
-  [nameInput, promptInput, tempInput, tokensInput, topPInput, topKInput, streamInput].forEach(el => {
+  [nameInput, promptInput, tempInput, tokensInput, topPInput, topKInput, streamInput, userNameInput, userPromptInput].forEach(el => {
     if (el) el.addEventListener(el === streamInput ? 'change' : 'input', _updateStartBtn);
   });
   // Re-label the Start button when the user switches tabs. Rebind the fresh
@@ -764,21 +953,20 @@ export function openCustomPresetModal() {
       if (t === 'group') {
         try { if (window.groupModule && window.groupModule.stopGroup) window.groupModule.stopGroup(); } catch {}
         if (window._syncGroupIndicator) window._syncGroupIndicator(false);
+      } else if (t === 'user') {
+        // Turn off ONLY the user persona; any AI persona stays active.
+        _clearUserPersona();
       } else {
-        deactivateCharacter();
-        try {
-          fetch(`${API_BASE}/api/presets/custom`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...(presets.custom || {}), name: (presets.custom && presets.custom.character_name) || '', enabled: false }),
-          }).catch(() => {});
-        } catch {}
+        // Character / Inject tab — turn off the AI side; a user persona stays active.
+        _clearAiSide();
       }
       const m = document.getElementById('custom-preset-modal');
       if (m) m.classList.add('hidden');
     });
   }
-  // When selecting a template, update snapshot so it counts as "unchanged"
-  if (charSelect) charSelect.addEventListener('change', () => setTimeout(() => {
+  // When selecting a template (either dropdown), update snapshot so it counts
+  // as "unchanged".
+  function _resetSnapshot() {
     _snapshot.name = nameInput ? nameInput.value : '';
     _snapshot.prompt = promptInput ? promptInput.value : '';
     _snapshot.temp = tempInput ? tempInput.value : '1';
@@ -786,8 +974,12 @@ export function openCustomPresetModal() {
     _snapshot.topP = topPInput ? topPInput.value : '1';
     _snapshot.topK = topKInput ? topKInput.value : '0';
     _snapshot.stream = streamInput ? streamInput.checked : true;
+    _snapshot.userName = userNameInput ? userNameInput.value : '';
+    _snapshot.userPrompt = userPromptInput ? userPromptInput.value : '';
     _updateStartBtn();
-  }, 50));
+  }
+  if (charSelect) charSelect.addEventListener('change', () => setTimeout(_resetSnapshot, 50));
+  if (userSelect) userSelect.addEventListener('change', () => setTimeout(_resetSnapshot, 50));
   _updateStartBtn();
 
   function _syncCharRows() {
@@ -835,6 +1027,12 @@ export function openCustomPresetModal() {
   }
 
   modal.classList.remove('hidden');
+
+  // Open straight onto a specific tab when launched from its chat-bar pill.
+  if (initialTab) {
+    const tabBtn = document.querySelector(`.preset-tab[data-chartab="${initialTab}"]`);
+    if (tabBtn) tabBtn.click();
+  }
 }
 
 /**
@@ -859,18 +1057,22 @@ export async function saveCustomPreset(showToast, showError) {
     }
   } catch (_) {}
 
-  // Starting from the Inject tab means a plain tuned chat (prefix/suffix +
-  // temp/tokens) — NOT a persona. The name/system-prompt fields live on the
-  // Character tab and may still hold a previously-selected character, so
-  // ignore them here or the chat would launch in-character.
+  // The AI persona, the user persona, and the prompt-tuning/inject settings are
+  // independent LAYERS that coexist — none clobbers another. So every field is
+  // read from its input on every save regardless of the active tab; an Inject/
+  // Prompt start keeps whatever personas are loaded and just updates tuning.
   const _activeTab = document.querySelector('.preset-tab.active')?.dataset.chartab || 'character';
   const _isInjectStart = _activeTab === 'inject';
 
-  const name = _isInjectStart ? '' : (nameInput ? nameInput.value.trim() : '');
+  const name = nameInput ? nameInput.value.trim() : '';
   const temperature = parseFloat(tempInput.value);
   const rawTokens = parseInt(tokensInput.value);
   const max_tokens = _savedMaxTokens(rawTokens);
-  const system_prompt = _isInjectStart ? '' : promptInput.value;
+  const system_prompt = promptInput.value;
+  const _userNameInput = document.getElementById('user-persona-name');
+  const _userPromptInput = document.getElementById('user-persona-prompt');
+  const user_persona_name = _userNameInput ? _userNameInput.value.trim() : '';
+  const user_persona_prompt = _userPromptInput ? _userPromptInput.value : '';
   const top_p = _readTopP();
   const top_k = _readTopK();
   const _streamInput = document.getElementById('custom-stream');
@@ -892,6 +1094,8 @@ export async function saveCustomPreset(showToast, showError) {
     system_prompt: system_prompt,
     inject_prefix: _prefixInput ? _prefixInput.value : '',
     inject_suffix: _suffixInput ? _suffixInput.value : '',
+    user_persona_name: user_persona_name,
+    user_persona_prompt: user_persona_prompt,
   };
 
   try {
@@ -914,7 +1118,8 @@ export async function saveCustomPreset(showToast, showError) {
       const _hasTuning = (config.temperature !== 1.0) || (config.max_tokens !== 0)
         || (config.top_p != null) || (config.top_k != null) || (config.stream === false);
       const _hasInject = !!(config.inject_prefix || config.inject_suffix);
-      const _hasContent = !!(system_prompt || name || _hasTuning || _hasInject);
+      const _hasUserPersona = !!(user_persona_name || user_persona_prompt);
+      const _hasContent = !!(system_prompt || name || _hasTuning || _hasInject || _hasUserPersona);
       if (enabled && _hasContent) {
         selectedPreset = 'custom';
         // Turn off research — doesn't make sense with a character
@@ -931,24 +1136,42 @@ export async function saveCustomPreset(showToast, showError) {
 
       setTimeout(() => { _syncCharIndicator(); }, 0);
 
-      // Auto-save to templates (non-blocking) — skip built-in presets
-      const _selVal = document.getElementById('char-template-select')?.value || '';
-      const isBuiltinPreset = PROMPT_TEMPLATES.some(t => t.isPreset && (t.name === name || t.name === _selVal));
-      const saveName = isBuiltinPreset ? null : (name || null);
-      if (saveName) {
-        fetch(`${API_BASE}/api/presets/templates`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            id: (userTemplates.find(t => t.name === saveName) || {}).id || '',
-            name: saveName, system_prompt, temperature: config.temperature, max_tokens: config.max_tokens,
-          }),
-        }).then(r => { if (r.ok) loadUserTemplates(); }).catch(() => {});
+      // Auto-save the just-started persona into the SHARED template pool so it
+      // reappears in BOTH dropdowns. Which persona depends on the active tab;
+      // built-ins are skipped. User-persona templates store neutral temp/tokens
+      // since the user side has no independent tuning.
+      if (_activeTab === 'user') {
+        const _uSel = document.getElementById('user-template-select')?.value || '';
+        const _uBuiltin = PROMPT_TEMPLATES.some(t => t.isPreset && (t.name === user_persona_name || t.name === _uSel));
+        if (user_persona_name && !_uBuiltin) {
+          fetch(`${API_BASE}/api/presets/templates`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              id: (userTemplates.find(t => t.name === user_persona_name) || {}).id || '',
+              name: user_persona_name, system_prompt: user_persona_prompt, temperature: 1.0, max_tokens: 0,
+            }),
+          }).then(r => { if (r.ok) loadUserTemplates(); }).catch(() => {});
+        }
+      } else if (!_isInjectStart) {
+        const _selVal = document.getElementById('char-template-select')?.value || '';
+        const isBuiltinPreset = PROMPT_TEMPLATES.some(t => t.isPreset && (t.name === name || t.name === _selVal));
+        const saveName = isBuiltinPreset ? null : (name || null);
+        if (saveName) {
+          fetch(`${API_BASE}/api/presets/templates`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              id: (userTemplates.find(t => t.name === saveName) || {}).id || '',
+              name: saveName, system_prompt, temperature: config.temperature, max_tokens: config.max_tokens,
+            }),
+          }).then(r => { if (r.ok) loadUserTemplates(); }).catch(() => {});
+        }
       }
 
       if (showToast) {
         // The Inject tab is a plain tuned "prompt" chat, not a persona — say so.
-        showToast(_isInjectStart ? 'Prompt saved' : 'Persona saved');
+        showToast(_isInjectStart ? 'Prompt saved' : (_activeTab === 'user' ? 'User persona saved' : 'Persona saved'));
       }
       const modal = document.getElementById('custom-preset-modal');
       if (modal) {
@@ -1060,7 +1283,10 @@ function _reloadMemoryList() {
 }
 
 /**
- * Show/hide the character indicator pill in the chat input bar.
+ * Show/hide the single combined indicator pill in the chat input bar. It lists
+ * every active LAYER together — AI persona, user persona, and (for a plain
+ * tuned/inject chat with no persona) "Prompt" — joined with " · ". The layers
+ * coexist; one X turns the whole custom preset off.
  */
 function _syncCharIndicator() {
   const btn = document.getElementById('character-indicator-btn');
@@ -1069,54 +1295,55 @@ function _syncCharIndicator() {
   if (!btn) return;
   const custom = presets.custom;
   const enabled = custom?.enabled !== false;
-  const hasChar = enabled && !!custom?.character_name;
-  // "Inject mode": custom preset is active for plain tuning / inject only —
-  // no persona. Detected from the custom config so it survives a reload.
+  const aiName = enabled ? (custom?.character_name || '') : '';
+  const hasUser = enabled && _customHasUserPersona(custom);
+  const userName = hasUser ? (custom.user_persona_name || '') : '';
+  // Pure tuned/inject chat: tuning or inject set with NO persona at all (a
+  // persona's own temperature is part of the persona, not a separate layer).
   const _t = parseFloat(custom?.temperature);
-  const _hasTuning = (!isNaN(_t) && _t !== 1.0) || (!!custom?.max_tokens && custom.max_tokens !== 0);
+  const _hasTuning = (!isNaN(_t) && _t !== 1.0) || (!!custom?.max_tokens && custom.max_tokens !== 0)
+    || (custom?.top_p != null) || (custom?.top_k != null) || (custom?.stream === false);
   const _hasInject = !!(custom?.inject_prefix || custom?.inject_suffix);
-  const injectActive = enabled && !custom?.character_name && (_hasTuning || _hasInject);
+  const pureTuned = enabled && !aiName && !hasUser && (_hasTuning || _hasInject);
   // Icon path sets for the indicator chip.
   const _AVATAR = '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>';
   const _SYRINGE = '<path d="m18 2 4 4"/><path d="m17 7 3-3"/><path d="M19 9 8.7 19.3c-1 1-2.5 1-3.4 0l-.6-.6c-1-1-1-2.5 0-3.4L15 5"/><path d="m9 11 4 4"/><path d="m5 19-3 3"/><path d="m14 4 6 6"/>';
-  if (hasChar || injectActive) {
+
+  const parts = [];
+  if (aiName) parts.push(aiName);
+  if (hasUser) parts.push('You: ' + (userName || '…'));
+  if (!parts.length && pureTuned) parts.push('Prompt');
+
+  if (parts.length) {
     btn.style.display = '';
     btn.classList.add('active');
-    if (hasChar) {
-      if (iconEl) iconEl.innerHTML = _AVATAR;
-      if (nameSpan) nameSpan.textContent = custom.character_name;
-      btn.title = `Persona: ${custom.character_name} — click to configure`;
-    } else {
-      // Inject/tuning chat — syringe tag labeled "Prompt" to match the
-      // window identity, no persona name.
-      if (iconEl) iconEl.innerHTML = _SYRINGE;
-      if (nameSpan) nameSpan.textContent = 'Prompt';
-      btn.title = 'Custom settings active — click to configure';
-    }
+    const hasPersona = !!(aiName || hasUser);
+    if (iconEl) iconEl.innerHTML = hasPersona ? _AVATAR : _SYRINGE;
+    if (nameSpan) nameSpan.textContent = parts.join(' · ');
+    btn.title = hasPersona
+      ? `Active: ${parts.join(', ')} — click to configure`
+      : 'Custom settings active — click to configure';
     // Hide X in persistent chats
     const xIcon = btn.querySelector('.tool-indicator-x');
     if (xIcon) xIcon.style.display = window._persistentChatSession ? 'none' : '';
     if (!btn._wired) {
       btn._wired = true;
       btn.addEventListener('click', (e) => {
-        // If clicking the X, deactivate character
+        // One X clears EVERY layer — turn the whole custom preset off.
         if (e.target.closest('.tool-indicator-x')) {
           if (window._persistentChatSession) return; // locked in persistent chat
-          selectedPreset = null;
-          presets.custom = { ...presets.custom, enabled: false };
-          btn.style.display = 'none';
-          btn.classList.remove('active');
-          const miniBtn = document.getElementById('overflow-preset-btn');
-          if (miniBtn) miniBtn.classList.remove('active');
-          // Save disabled state to backend
+          deactivateCharacter();
           fetch(`${API_BASE}/api/presets/custom`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...presets.custom, name: presets.custom.character_name || '', enabled: false }),
+            body: JSON.stringify({ ...presets.custom, name: (presets.custom && presets.custom.character_name) || '', enabled: false }),
           }).catch(() => {});
           return;
         }
-        if (typeof openCustomPresetModal === 'function') openCustomPresetModal();
+        // Body click opens the modal on the most relevant tab.
+        const c = presets.custom || {};
+        const tab = c.character_name ? 'character' : (_customHasUserPersona(c) ? 'user' : 'inject');
+        if (typeof openCustomPresetModal === 'function') openCustomPresetModal(tab);
       });
     }
   } else {

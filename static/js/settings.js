@@ -1985,6 +1985,39 @@ function initAccount() {
       }
     }).catch(() => {});
 
+  // ── About you ── persistent self-description injected into the system prompt
+  // on every chat (stored as the per-user `about_user` pref).
+  const aboutInput = el('settings-about-user-input');
+  const aboutMsg = el('set-about-user-msg');
+  const aboutSave = el('set-about-user-save');
+  if (aboutInput) {
+    fetch('/api/prefs/about_user', { credentials: 'same-origin' })
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (d && typeof d.value === 'string') aboutInput.value = d.value; })
+      .catch(() => {});
+  }
+  if (aboutSave) {
+    aboutSave.addEventListener('click', async () => {
+      if (!aboutInput) return;
+      aboutSave.disabled = true;
+      if (aboutMsg) { aboutMsg.style.color = ''; aboutMsg.textContent = ''; }
+      try {
+        const res = await fetch('/api/prefs/about_user', {
+          method: 'PUT', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ value: aboutInput.value }),
+        });
+        if (!res.ok) throw new Error('Failed to save');
+        if (aboutMsg) { aboutMsg.style.color = 'var(--green)'; aboutMsg.textContent = 'Saved'; }
+      } catch (e) {
+        if (aboutMsg) { aboutMsg.style.color = 'var(--red)'; aboutMsg.textContent = 'Save failed'; }
+      } finally {
+        aboutSave.disabled = false;
+        if (aboutMsg) setTimeout(() => { aboutMsg.textContent = ''; }, 2000);
+      }
+    });
+  }
+
   // Change password
   const saveBtn = el('settings-pw-save');
   const msgEl = el('settings-pw-msg');

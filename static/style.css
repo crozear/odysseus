@@ -2554,7 +2554,7 @@ body.bg-pattern-sparkles {
       color: var(--fg);
     }
     .model-picker-btn #model-picker-label {
-      max-width: 120px;
+      max-width: 150px;
       overflow: hidden;
       text-overflow: ellipsis;
     }

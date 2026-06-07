@@ -164,11 +164,13 @@ class ChatProcessor:
         use_memory: bool = True,
         time_filter: Optional[str] = None,
         preset_system_prompt: Optional[str] = None,
+        user_persona_prompt: Optional[str] = None,
         owner: Optional[str] = None,
         character_name: Optional[str] = None,
         agent_mode: bool = False,
         incognito: bool = False,
         use_skills: bool = True,
+        uprefs: Optional[dict] = None,
     ) -> Tuple[List[Dict[str, str]], List[Dict[str, Any]], List[Dict[str, str]]]:
         """Build the context preface for LLM calls.
 
@@ -178,12 +180,48 @@ class ChatProcessor:
         preface = []
         rag_sources = []
 
-        # Add preset system prompt if specified
+        # Three stable system prompts, emitted as SEPARATE system messages in a
+        # fixed order — custom/character prompt → "About the user" → user persona.
+        # Keeping them separate (rather than pre-joined) lets each stay an
+        # independently sized block; for Anthropic they survive to the wire as a
+        # `system` array with a single cache breakpoint on the last one present
+        # (see _build_anthropic_payload). The order is deliberate: the AI's own
+        # identity first, then who the user is, then the role the user is playing.
+
+        # `cache_anchor` tracks the LAST of the three stable prompts that is
+        # actually present, so we can pin the Anthropic prompt-cache breakpoint
+        # there (see _build_anthropic_payload). Everything appended after it —
+        # memory, RAG, web, fetched URLs, the skills index — is volatile
+        # per-turn context and is deliberately left OUTSIDE the cached prefix.
+        cache_anchor = None
+
+        # 1. Custom / character prompt
         if preset_system_prompt:
-            preface.append({
-                "role": "system",
-                "content": preset_system_prompt
-            })
+            cache_anchor = {"role": "system", "content": preset_system_prompt}
+            preface.append(cache_anchor)
+        # 2. "About the user" — a persistent self-description the user sets in
+        # Settings → Account (separate from roleplay personas and from memory).
+        # Injected whenever present, except in incognito where the user has opted
+        # out of context retention this turn.
+        if uprefs and not incognito:
+            about = str(uprefs.get("about_user", "")).strip()
+            if about:
+                cache_anchor = {"role": "system", "content": f"About the user:\n{about}"}
+                preface.append(cache_anchor)
+        # 3. User persona — the character the USER is roleplaying as. Placed last
+        # so the AI never conflates it with its own identity, and so it sits at
+        # the tail of the cached stable prefix.
+        if user_persona_prompt:
+            cache_anchor = {"role": "system", "content": user_persona_prompt}
+            preface.append(cache_anchor)
+
+        # Pin the prompt-cache breakpoint on the last stable prompt present. The
+        # marker is the Anthropic-native cache_control directive; non-Anthropic
+        # providers never see it (system messages are consolidated content-only),
+        # and _build_anthropic_payload still applies its own size/tools gate, so
+        # a trivially small prefix won't trigger a pointless cache write.
+        if cache_anchor is not None:
+            cache_anchor["cache_control"] = {"type": "ephemeral"}
         # Memory: pinned (always included) + extended (RAG-retrieved when relevant)
         self._last_used_memories = []  # track what was injected
         if use_memory:
@@ -195,9 +233,10 @@ class ChatProcessor:
             _used_ids: list = []
             if pinned:
                 pinned_text = "\n- ".join([m["text"] for m in pinned])
-                preface.append(
-                    f"Core facts about the user:\n- {pinned_text}",
-                )
+                preface.append({
+                    "role": "system",
+                    "content": f"Core facts about the user:\n- {pinned_text}",
+                })
                 for m in pinned:
                     self._last_used_memories.append({"text": m["text"], "category": m.get("category", "fact"), "type": "pinned"})
                     if m.get("id"):
@@ -207,12 +246,13 @@ class ChatProcessor:
                 relevant = self._hybrid_retrieve(message, extended, k=3)
                 if relevant:
                     ext_text = "\n".join([f"- {m['text']}" for m in relevant])
-                    preface.append(
-                        (
+                    preface.append({
+                        "role": "system",
+                        "content": (
                             "Memory context. Do not reference unless the user asks "
                             f"about these topics.\n{ext_text}"
                         ),
-                    )
+                    })
                     for m in relevant:
                         self._last_used_memories.append({"text": m["text"], "category": m.get("category", "fact"), "type": "recalled"})
                         if m.get("id"):
@@ -251,7 +291,7 @@ class ChatProcessor:
                         )
                         if len(rag_content) > 32768:
                             rag_content = rag_content[:32768] + "\n[Truncated]"
-                        preface.append(rag_content)
+                        preface.append({"role": "system", "content": rag_content})
             except Exception as e:
                 logger.warning(f"RAG retrieval failed: {e}")
 
@@ -262,7 +302,7 @@ class ChatProcessor:
                 web_context, web_sources = comprehensive_web_search(
                     message, time_filter=time_filter, return_sources=True
                 )
-                preface.append(web_context)
+                preface.append({"role": "system", "content": web_context})
             except Exception as e:
                 logger.error(f"Web search failed: {e}")
                 preface.append({"role": "system", "content": "Web search encountered an error and could not retrieve results."})
@@ -281,9 +321,10 @@ class ChatProcessor:
                 result = fetch_webpage_content(url)
                 if result.get('success'):
                     content = result.get('content', '')[:32768]
-                    preface.append(
-                        f"Content from {url}:\n\n{content}",
-                    )
+                    preface.append({
+                        "role": "system",
+                        "content": f"Content from {url}:\n\n{content}",
+                    })
 
         # Skills index — progressive disclosure. Only injected when the
         # model has the `manage_skills` tool available (agent_mode), and
@@ -306,6 +347,6 @@ class ChatProcessor:
                     for s in sorted(by_cat[cat], key=lambda x: x["name"]):
                         desc = s.get("description") or ""
                         lines.append(f"    - {s['name']}: {desc}" if desc else f"    - {s['name']}")
-                preface.append("\n".join(lines))
+                preface.append({"role": "system", "content": "\n".join(lines)})
 
         return preface, rag_sources, web_sources

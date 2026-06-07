@@ -297,8 +297,6 @@ const _TASK_ICONS = {
   // Skills
   test_skills:         '<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>',
   audit_skills:        '<path d="M9 11l3 3L22 4"/><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v15H6.5A2.5 2.5 0 0 0 4 19.5z"/>',
-  // Assistant
-  daily_brief:         '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
   // Generic action fallback (gear)
   _action_default:     '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
   // LLM task fallback (chat bubble)
@@ -456,7 +454,7 @@ const _CATEGORY_MAP = {
   run_script:           'System',
   run_local:            'System',
 };
-const _CATEGORY_ORDER = ['Other', 'Chats', 'Documents', 'Memory', 'Research', 'Skills', 'Assistant', 'System'];
+const _CATEGORY_ORDER = ['Other', 'Chats', 'Documents', 'Memory', 'Research', 'Skills', 'System'];
 const _CATEGORY_ICONS = {
   Chats:     '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
   Documents: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>',
@@ -2053,6 +2051,7 @@ function _classifyResult(text) {
 const _CATEGORY_HUES = [
   { hue: 280, kw: /\b(research|web ?search|deep[-_ ]research|sources?|investigate)\b/i },// purple — research
   { hue:  35, kw: /\b(cookbook|model[-_ ]?(serve|download)|hf|huggingface|vllm|llama|ollama)\b/i }, // amber — cookbook
+  { hue: 330, kw: /\b(reminder|note|notify|alert)\b/i },                                 // pink   — reminders
   { hue:  10, kw: /\b(check[-_ ]?in|morning|evening|daily|standup)\b/i },                // red    — check-ins
   { hue: 190, kw: /\b(memory|memories|remember|recall)\b/i },                            // teal   — memory
 ];
@@ -2077,6 +2076,7 @@ function _categoryHue(taskName, kind) {
 const _CATEGORY_LABELS = [
   { label: 'research',  kw: /\b(research|web ?search|deep[-_ ]research|sources?|investigate)\b/i },
   { label: 'cookbook',  kw: /\b(cookbook|model[-_ ]?(serve|download)|hf|huggingface|vllm|llama|ollama)\b/i },
+  { label: 'reminders', kw: /\b(reminder|note|notify|alert)\b/i },
   { label: 'check-in',  kw: /\b(check[-_ ]?in|morning|evening|daily|standup)\b/i },
   { label: 'memory',    kw: /\b(memory|memories|remember|recall)\b/i },
 ];
@@ -2539,58 +2539,6 @@ export function closeTasks() {
 
 export function isTasksOpen() { return _open; }
 
-// ---- Task run notifications polling ----
-
-let _notifInterval = null;
-
-async function _pollTaskNotifications() {
-  try {
-    const res = await fetch(`${API_BASE}/api/tasks/notifications`, { credentials: 'same-origin' });
-    if (!res.ok) return;
-    const data = await res.json();
-    const notes = data.notifications || [];
-    for (const n of notes) {
-      const ok = n.status === 'success';
-      // Tasks with output_target='notification' carry the result text in `body`
-      // — show it as a real browser Notification (richer than a toast). Falls
-      // back to a toast when permission is denied or unavailable.
-      if (ok && n.body) {
-        const title = n.task_name || 'Task';
-        let fired = false;
-        try {
-          if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-            new Notification(title, { body: n.body, tag: 'task-' + (n.task_id || title), icon: '/static/favicon.ico' });
-            fired = true;
-          }
-        } catch (_) {}
-        if (!fired && uiModule) uiModule.showToast(title + ': ' + n.body.slice(0, 140), { duration: 7000 });
-        continue;
-      }
-      const msg = `Task ${ok ? 'finished' : 'failed'}: ${n.task_name}`;
-      if (!uiModule) continue;
-      if (ok) uiModule.showToast(msg, { duration: 5000 });
-      else uiModule.showError(msg);
-    }
-  } catch (e) {
-    // Silently ignore — server may be unreachable
-  }
-}
-
-function startNotificationPolling() {
-  if (_notifInterval) return;
-  _notifInterval = setInterval(_pollTaskNotifications, 30000);
-}
-
-function stopNotificationPolling() {
-  if (_notifInterval) {
-    clearInterval(_notifInterval);
-    _notifInterval = null;
-  }
-}
-
-// Start polling on module load
-startNotificationPolling();
-
-const tasksModule = { openTasks, closeTasks, isTasksOpen, startNotificationPolling, stopNotificationPolling };
+const tasksModule = { openTasks, closeTasks, isTasksOpen };
 export default tasksModule;
 window.tasksModule = tasksModule;

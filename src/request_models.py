@@ -106,6 +106,16 @@ class PresetUpdateRequest(BaseModel):
         max_length=16384,
         description="Text to append to each outgoing user message"
     )
+    user_persona_name: str = Field(
+        "",
+        max_length=50,
+        description="Display name of the persona the USER is roleplaying as"
+    )
+    user_persona_prompt: str = Field(
+        "",
+        max_length=32768,
+        description="Description of the user's persona, injected into the system prompt"
+    )
 
 
 class DirectoryRequest(BaseModel):

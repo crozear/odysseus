@@ -571,3 +571,26 @@ async def action_ping_notes(owner: str, **kwargs) -> Tuple[str, bool]:
 async def action_check_email_urgency(owner: str, **kwargs) -> Tuple[str, bool]:
     raise TaskNoop("action_check_email_urgency is disabled")
 
+BUILTIN_ACTIONS = {
+    "tidy_sessions": action_tidy_sessions,
+    "tidy_documents": action_tidy_documents,
+    "consolidate_memory": action_consolidate_memory,
+    "tidy_research": action_tidy_research,
+    "ssh_command": action_ssh_command,
+    "run_script": action_run_script,
+    "run_local": action_run_local,
+    "test_skills": action_test_skills,
+    "audit_skills": action_audit_skills,
+}
+
+# Descriptions for the UI/API
+BUILTIN_ACTION_INFO = {
+    "tidy_sessions": "Clean up empty chat sessions and auto-sort into folders",
+    "tidy_documents": "Remove junk/empty documents",
+    "consolidate_memory": "Remove duplicate memories",
+    "tidy_research": "Remove orphaned research files (sessions that were deleted)",
+    "ssh_command": "Run a shell command on a local or remote host",
+    "run_script": "Run a script locally or on ODYSSEUS_SCRIPT_HOST",
+    "test_skills": "Run the per-skill Test on every skill: agent run + LLM judge → records verdict on the skill (pass/needs_work/fail/inconclusive). Advisory only — never rewrites or demotes anything.",
+    "audit_skills": "Audit unaudited skills after enough new skills are added: test, narrow metadata, self-edit/retry, optional teacher rewrite, tag duplicates/trivial skills, and publish/draft using the auto-approve threshold.",
+}

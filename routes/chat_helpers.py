@@ -34,6 +34,7 @@ class PresetInfo:
     top_p: Optional[float] = None
     top_k: Optional[int] = None
     stream: bool = True
+    user_persona: Optional[str] = None
 
 
 @dataclass
@@ -263,7 +264,7 @@ def try_fallback_endpoint(sess, session_id: str) -> dict | None:
 
 def extract_preset(chat_handler, preset_id) -> PresetInfo:
     """Extract preset parameters via chat_handler."""
-    temperature, max_tokens, system_prompt, char_name, top_p, top_k, stream = (
+    temperature, max_tokens, system_prompt, char_name, top_p, top_k, stream, user_persona = (
         chat_handler.validate_and_extract_preset(preset_id)
     )
     return PresetInfo(
@@ -274,6 +275,7 @@ def extract_preset(chat_handler, preset_id) -> PresetInfo:
         top_p=top_p,
         top_k=top_k,
         stream=stream,
+        user_persona=user_persona,
     )
 
 
@@ -512,11 +514,13 @@ async def build_chat_context(
         use_memory=mem_enabled,
         time_filter=time_filter,
         preset_system_prompt=preset.system_prompt,
+        user_persona_prompt=preset.user_persona,
         owner=user,
         character_name=preset.character_name,
         agent_mode=agent_mode,
         incognito=incognito,
         use_skills=skills_enabled,
+        uprefs=uprefs,
     )
     if use_rag is not None:
         _preface_kwargs["use_rag"] = use_rag_val

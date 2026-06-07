@@ -528,7 +528,9 @@ def _build_anthropic_payload(model, messages, temperature, max_tokens, stream=Fa
     chat_messages = []
     for m in messages:
         if m.get("role") == "system":
-            system_parts.append(m["content"])
+            # Carry the cache_control marker (presence only) alongside the text so
+            # we can pin the breakpoint on the producer-chosen stable-prefix tail.
+            system_parts.append((m["content"], "cache_control" in m))
         elif m.get("role") == "tool":
             # Convert OpenAI tool result to Anthropic format
             chat_messages.append({
@@ -627,17 +629,33 @@ def _build_anthropic_payload(model, messages, temperature, max_tokens, stream=Fa
             payload["top_p"] = max(0.0, min(float(top_p), 1.0))
 
     if system_parts:
-        system_text = "\n\n".join(system_parts)
-        # Send `system` as a structured text block so we can attach a prompt-cache
-        # breakpoint. The agent loop re-sends this same large prefix every round;
-        # caching it makes Anthropic re-read it from cache (~90% cheaper, lower TTFB)
-        # instead of re-billing it. Skip caching tiny one-off prompts, where the
-        # cache-WRITE premium wouldn't pay back (no reuse). Presence of `tools`
-        # means an agentic/multi-round call, where the prefix is always reused.
-        system_block = {"type": "text", "text": system_text}
-        if tools or len(system_text) > 4000:
-            system_block["cache_control"] = {"type": "ephemeral"}
-        payload["system"] = [system_block]
+        # Send `system` as a LIST of structured text blocks — one per upstream
+        # system message — so each stays an independently sized unit. A single
+        # prompt-cache breakpoint caches the whole stable system prefix (e.g.
+        # custom prompt + about-user + user persona) and re-reads it from cache
+        # each round (~90% cheaper, lower TTFB), while volatile per-turn context
+        # appended after it (memory, RAG, web, fetched URLs) stays uncached. The
+        # breakpoint invalidates only when a prefix block changes — the intended
+        # behavior for prompt/persona edits between chats. Skip caching tiny
+        # one-off prefixes (no reuse); `tools` means an agentic/multi-round call
+        # where the prefix is always reused.
+        system_blocks = []
+        anchor_idx = None  # producer-marked stable-prefix tail, if any
+        for text, marked in system_parts:
+            if text is None or (isinstance(text, str) and text == ""):
+                continue
+            system_blocks.append({"type": "text", "text": text if isinstance(text, str) else str(text)})
+            if marked:
+                anchor_idx = len(system_blocks) - 1
+        if system_blocks:
+            # If the producer pinned a stable-prefix tail, cache up to and
+            # including THAT block (so trailing volatile context stays out of the
+            # cached region); otherwise fall back to caching the last block.
+            cache_idx = anchor_idx if anchor_idx is not None else len(system_blocks) - 1
+            cached_len = sum(len(b["text"]) for b in system_blocks[:cache_idx + 1])
+            if tools or cached_len > 4000:
+                system_blocks[cache_idx]["cache_control"] = {"type": "ephemeral"}
+            payload["system"] = system_blocks
     if stream:
         payload["stream"] = True
     # Convert OpenAI-format tools to Anthropic format
@@ -709,7 +727,12 @@ def _sanitize_llm_messages(messages: List[Dict]) -> List[Dict]:
     (content=None, since Gemini/Ollama reject tool_calls alongside ""). Dropping
     it leaves the tool result dangling and breaks the next round.
     """
-    allowed = {"role", "content", "name", "tool_call_id", "tool_calls", "function_call"}
+    # `cache_control` rides along on a system message to mark the Anthropic
+    # prompt-cache breakpoint (set by build_context_preface on the stable-prefix
+    # tail). It's harmless for other providers — their system messages are
+    # consolidated content-only — and _build_anthropic_payload reads only its
+    # presence, re-deriving the actual directive itself.
+    allowed = {"role", "content", "name", "tool_call_id", "tool_calls", "function_call", "cache_control"}
     cleaned = []
     for msg in messages or []:
         if not isinstance(msg, dict):
@@ -981,20 +1004,23 @@ def llm_call(url: str, model: str, messages: List[Dict], temperature: float = LL
 
     messages_copy = _sanitize_llm_messages(messages)
 
-    # Consolidate multiple system messages into one at the start.
-    sys_parts = []
-    non_sys = []
-    for m in messages_copy:
-        if m.get("role") == "system":
-            sys_parts.append(m["content"])
-        else:
-            non_sys.append(m)
-    if sys_parts:
-        messages_copy = [{"role": "system", "content": "\n\n".join(sys_parts)}] + non_sys
-    else:
-        messages_copy = non_sys
-
     provider = _detect_provider(url)
+    # Consolidate multiple system messages into one at the start.
+    # Anthropic is the exception — it takes a dedicated `system` array and we keep
+    # each system prompt a separate, individually cache-controllable block, so
+    # leave them un-merged there (see _build_anthropic_payload).
+    if provider != "anthropic":
+        sys_parts = []
+        non_sys = []
+        for m in messages_copy:
+            if m.get("role") == "system":
+                sys_parts.append(m["content"])
+            else:
+                non_sys.append(m)
+        if sys_parts:
+            messages_copy = [{"role": "system", "content": "\n\n".join(sys_parts)}] + non_sys
+        else:
+            messages_copy = non_sys
     cache_key = _get_cache_key(url, model, messages_copy, temperature, max_tokens)
     cached_response = _get_cached_response(cache_key)
     if cached_response:
@@ -1135,17 +1161,21 @@ async def llm_call_async(
     messages_copy = _sanitize_llm_messages(messages)
 
     # Consolidate multiple system messages into one at the start.
-    sys_parts = []
-    non_sys = []
-    for m in messages_copy:
-        if m.get("role") == "system":
-            sys_parts.append(m["content"])
+    # Anthropic is the exception — it takes a dedicated `system` array and we keep
+    # each system prompt a separate, individually cache-controllable block, so
+    # leave them un-merged there (see _build_anthropic_payload).
+    if provider != "anthropic":
+        sys_parts = []
+        non_sys = []
+        for m in messages_copy:
+            if m.get("role") == "system":
+                sys_parts.append(m["content"])
+            else:
+                non_sys.append(m)
+        if sys_parts:
+            messages_copy = [{"role": "system", "content": "\n\n".join(sys_parts)}] + non_sys
         else:
-            non_sys.append(m)
-    if sys_parts:
-        messages_copy = [{"role": "system", "content": "\n\n".join(sys_parts)}] + non_sys
-    else:
-        messages_copy = non_sys
+            messages_copy = non_sys
 
     cache_key = _get_cache_key(url, model, messages_copy, temperature, max_tokens)
     cached_response = _get_cached_response(cache_key)
@@ -1252,17 +1282,21 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
 
     # Consolidate multiple system messages into one at the start.
     # Some models (e.g. Qwen3.5) reject system messages that aren't first.
-    sys_parts = []
-    non_sys = []
-    for m in messages_copy:
-        if m.get("role") == "system":
-            sys_parts.append(m["content"])
+    # Anthropic is the exception — it takes a dedicated `system` array and we keep
+    # each system prompt a separate, individually cache-controllable block, so
+    # leave them un-merged there (see _build_anthropic_payload).
+    if provider != "anthropic":
+        sys_parts = []
+        non_sys = []
+        for m in messages_copy:
+            if m.get("role") == "system":
+                sys_parts.append(m["content"])
+            else:
+                non_sys.append(m)
+        if sys_parts:
+            messages_copy = [{"role": "system", "content": "\n\n".join(sys_parts)}] + non_sys
         else:
-            non_sys.append(m)
-    if sys_parts:
-        messages_copy = [{"role": "system", "content": "\n\n".join(sys_parts)}] + non_sys
-    else:
-        messages_copy = non_sys
+            messages_copy = non_sys
 
     if provider == "anthropic":
         target_url = _normalize_anthropic_url(url)

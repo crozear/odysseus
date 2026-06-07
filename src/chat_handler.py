@@ -54,7 +54,7 @@ class ChatHandler:
 
     def validate_and_extract_preset(self, preset_id: Optional[str]) -> tuple:
         """Returns (temperature, max_tokens, preset_system_prompt, character_name,
-        top_p, top_k, stream)."""
+        top_p, top_k, stream, user_persona_prompt)."""
         if preset_id and preset_id not in self.preset_manager.presets:
             raise HTTPException(400, f"Invalid preset_id: {preset_id}")
 
@@ -65,12 +65,13 @@ class ChatHandler:
         top_p = None
         top_k = None
         stream = True
+        user_persona_prompt = None
 
         if preset_id and preset_id in self.preset_manager.presets:
             preset = self.preset_manager.presets[preset_id]
             if preset.get("enabled") is False:
                 logger.info(f"Preset {preset_id} is disabled, using defaults")
-                return temperature, max_tokens, preset_system_prompt, character_name, top_p, top_k, stream
+                return temperature, max_tokens, preset_system_prompt, character_name, top_p, top_k, stream, user_persona_prompt
             if preset.get("system_prompt"):
                 preset_system_prompt = preset["system_prompt"]
             character_name = preset.get("character_name", "")
@@ -80,6 +81,21 @@ class ChatHandler:
                     preset_system_prompt = f"{name_line} {preset_system_prompt}"
                 else:
                     preset_system_prompt = name_line
+            # User persona — a character the USER is roleplaying as. Returned as a
+            # SEPARATE prompt (not merged into preset_system_prompt) so it becomes
+            # its own system block, placed after "About the user" in
+            # build_context_preface. Explicitly labeled as the user's identity
+            # (distinct from the AI's "Your name is ..." above) so the model never
+            # conflates the two roles.
+            upn = preset.get("user_persona_name", "")
+            upp = preset.get("user_persona_prompt", "")
+            if upn or upp:
+                if upn and upp:
+                    user_persona_prompt = f"The user is roleplaying as {upn}. {upp}"
+                elif upn:
+                    user_persona_prompt = f"The user is roleplaying as {upn}."
+                else:
+                    user_persona_prompt = upp
             if "temperature" in preset:
                 temperature = preset["temperature"]
             if "max_tokens" in preset:
@@ -89,7 +105,7 @@ class ChatHandler:
             stream = preset.get("stream", True)
 
         logger.info(f"Preset {preset_id}: temp={temperature}, max_tokens={max_tokens}")
-        return temperature, max_tokens, preset_system_prompt, character_name, top_p, top_k, stream
+        return temperature, max_tokens, preset_system_prompt, character_name, top_p, top_k, stream, user_persona_prompt
 
     def enhance_message_if_needed(self, message: str) -> str:
         """CoT enhancement disabled — modern models reason natively."""
