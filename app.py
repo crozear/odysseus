@@ -667,9 +667,20 @@ app.include_router(setup_api_token_routes())
 
 logger.info("Webhook & API token routes initialized")
 
-# Codex integration — Claude Code skill bundle download endpoint
-from routes.codex_routes import setup_claude_routes
-app.include_router(setup_claude_routes())
+# Notes (Google Keep-style notes/todos)
+from routes.note_routes import setup_note_routes
+app.include_router(setup_note_routes(task_scheduler))
+
+# Codex integration — HTTP surface for the Codex plugin/MCP bridge. Reuses
+# api_token scopes (todos:read|write, email:read|draft|send) so external
+# Codex sessions can only touch the data the user explicitly allowed. Mounted
+# AFTER email so the codex_routes can borrow the email router for shared
+# search/threading helpers.
+from routes.codex_routes import setup_codex_routes, setup_claude_routes
+app.include_router(setup_codex_routes(
+    memory_router=memory_router,
+    document_router=document_router,
+))
 
 from routes.vault_routes import setup_vault_routes
 app.include_router(setup_vault_routes())
@@ -696,6 +707,10 @@ async def serve_index(request: Request):
     if os.path.exists(root_path):
         return _serve_html_with_nonce(request, root_path)
     raise HTTPException(404, "index.html not found")
+
+@app.get("/notes")
+async def serve_notes(request: Request):
+    return await serve_index(request)
 
 @app.get("/cookbook")
 async def serve_cookbook(request: Request):
@@ -998,6 +1013,16 @@ async def _startup_event():
                 logger.warning(f"Nightly skill audit failed: {e}")
 
     _startup_tasks.append(asyncio.create_task(_skill_audit_nightly_loop()))
+
+    # Cookbook serve lifecycle — kills scheduler-launched serves whose
+    # window-end has passed. Paired with the cookbook_serve builtin
+    # action; both are no-ops unless a scheduled task actually launches
+    # something with end_after_min set. Removing this line + the
+    # cookbook_serve entry in BUILTIN_ACTIONS + src/cookbook_serve_lifecycle.py
+    # removes the feature.
+    from src.cookbook_serve_lifecycle import cookbook_serve_lifecycle_loop
+    _startup_tasks.append(asyncio.create_task(cookbook_serve_lifecycle_loop()))
+
     logger.info("Application startup complete")
 
 async def _shutdown_event():

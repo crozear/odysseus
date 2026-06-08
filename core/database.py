@@ -1331,6 +1331,45 @@ def _migrate_add_assistant_columns():
 
 
 
+class Note(TimestampMixin, Base):
+    """A Google Keep-style note or checklist."""
+    __tablename__ = "notes"
+
+    id         = Column(String, primary_key=True, index=True)
+    owner      = Column(String, nullable=True, index=True)
+    title      = Column(String, default="")
+    content    = Column(Text, nullable=True)
+    items      = Column(Text, nullable=True)       # JSON string of [{text, done}]
+    note_type  = Column(String, default="note")     # "note" or "checklist"
+    color      = Column(String, nullable=True)
+    label      = Column(String, nullable=True)
+    pinned     = Column(Boolean, default=False)
+    archived   = Column(Boolean, default=False)
+    due_date   = Column(String, nullable=True)
+    source     = Column(String, default="user")     # "user" or "agent"
+    session_id = Column(String, nullable=True)
+    sort_order = Column(Integer, default=0)
+    image_url  = Column(String, nullable=True)      # uploaded image URL (relative path)
+    repeat     = Column(String, default="none")     # none, daily, weekly, monthly, yearly
+    # Auto-AI fields — populated by /api/notes/{id}/classify. The classification
+    # JSON shape is { kind, solvable, confidence, task_prompt, tools, items?: [...] }.
+    # Content hash gates re-classification (avoid LLM spend on every save).
+    ai_classification = Column(Text, nullable=True)
+    ai_content_hash   = Column(String, nullable=True)
+    # Chat session spawned by the note's "Agent" button (solve-this-todo).
+    # The note shows a clickable tag that opens this session for review.
+    agent_session_id  = Column(String, nullable=True)
+
+class Integration(TimestampMixin, Base):
+    """An external service connection (email, RSS, webhook, etc.)."""
+    __tablename__ = "integrations"
+
+    id     = Column(String, primary_key=True, index=True)
+    owner  = Column(String, nullable=True, index=True)
+    name   = Column(String, nullable=False)
+    type   = Column(String, nullable=False)  # "rss", "webhook"
+    config = Column(JSON, nullable=True)     # type-specific config
+    enabled = Column(Boolean, default=True)
 
 # WARNING: Foreign-key enforcement is enabled globally for all SQLite connections.
 # Any future migrations or schema changes that temporarily violate foreign-key
