@@ -33,3 +33,4 @@ qrcode[pil]
 croniter
 pytest
 pytest-asyncio
+markitdown[docx,pptx,xlsx,xls]==0.1.5
