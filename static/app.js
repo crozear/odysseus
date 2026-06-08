@@ -21,6 +21,7 @@ import voiceRecorderModule from './js/voiceRecorder.js';
 import censorModule from './js/censor.js';
 import galleryModule from './js/gallery.js';
 import tasksModule from './js/tasks.js';
+import notesModule from './js/notes.js';
 import adminModule from './js/admin.js';
 import settingsModule from './js/settings.js';
 // Eagerly bind unified minimize/restore behavior across all tool modals.
@@ -878,6 +879,20 @@ function initializeEventListeners() {
       }
     });
   }
+  // Notes tool button
+  const toolNotesBtn = el('tool-notes-btn');
+  if (toolNotesBtn) {
+    toolNotesBtn.addEventListener('click', () => {
+      if (notesModule) {
+        notesModule.togglePanel();
+      }
+    });
+  }
+  // Refresh notes due-reminder badge on load and every 5 minutes
+  if (notesModule && notesModule.refreshDueBadge) {
+    notesModule.refreshDueBadge();
+    setInterval(() => notesModule.refreshDueBadge(), 5 * 60 * 1000);
+  }
 
   // URL-based panel routing — bookmark, /notes, /cookbook etc
   // and the matching tool opens automatically on page load.
@@ -942,6 +957,27 @@ function initializeEventListeners() {
     }
   }
   const _routeOpen = {
+    '/notes':    () => {
+      if (!notesModule) return;
+      _collapseSidebarToRail();
+      notesModule.openPanel();
+      // Promote to fullscreen-with-rail-visible. The pane wires up its own
+      // fullscreen toggle (#notes-fullscreen-toggle); piggyback on that
+      // path so the button icon flips and overflow:hidden gets applied
+      // alongside. Retry on rAF in case the panel mounts a tick later.
+      const _go = () => {
+        const btn = document.getElementById('notes-fullscreen-toggle');
+        const pane = document.querySelector('.notes-pane');
+        if (!pane) return false;
+        if (!pane.classList.contains('notes-pane-fullscreen') && btn) btn.click();
+        return true;
+      };
+      if (!_go()) {
+        requestAnimationFrame(_go);
+        setTimeout(_go, 50);
+        setTimeout(_go, 200);
+      }
+    },
     '/cookbook': () => document.getElementById('tool-cookbook-btn')?.click(),
     '/memory':   () => document.getElementById('tool-memory-btn')?.click(),
     '/gallery':  () => document.getElementById('tool-gallery-btn')?.click(),

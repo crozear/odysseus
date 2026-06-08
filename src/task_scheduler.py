@@ -977,6 +977,7 @@ class TaskScheduler:
     async def _execute_checkin(self, task, crew, db, session_id: str,
                                endpoint_url: str, model: str) -> str:
         """Gather raw data from all integrations, hand it to the LLM to write the check-in."""
+        from src.tool_implementations import do_manage_notes
         from src.agent_tools import get_mcp_manager
 
         tz_name = _resolve_task_timezone(db, task)
@@ -995,6 +996,13 @@ class TaskScheduler:
             time_str = now.strftime("%H:%M UTC")
 
         raw = {}
+
+        # Notes/Tasks
+        try:
+            r = await do_manage_notes(json.dumps({"action": "list"}), owner=task.owner)
+            raw["notes_tasks"] = r.get("results") or r.get("response") or "No notes"
+        except Exception as e:
+            raw["notes_tasks"] = f"Error: {e}"
 
         # Auto-discover API integrations (Miniflux RSS, etc.).
         try:

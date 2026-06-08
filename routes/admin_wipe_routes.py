@@ -1,12 +1,12 @@
 """Admin Danger Zone — per-category wipes.
 
 Each endpoint is admin-only and truncates exactly one domain so the
-user can selectively reset memory / skills / etc. without
+user can selectively reset memory / skills / notes/ etc. without
 nuking everything. The catch-all `chats` endpoint mirrors the
 existing /api/sessions/all so the Danger Zone speaks one URL pattern.
 
 URL shape: DELETE /api/admin/wipe/{kind}
-Kinds: chats, memory, skills, tasks, documents, gallery.
+Kinds: chats, memory, skills, notes, tasks, documents, gallery.
 """
 
 import json
@@ -21,6 +21,7 @@ from core.database import (
     Session as DbSession,
     ChatMessage as DbChatMessage,
     Memory,
+    Note,
     ScheduledTask,
     TaskRun,
     Document,
@@ -118,6 +119,12 @@ def setup_admin_wipe_routes(session_manager):
                         os.remove(legacy)
                     except OSError:
                         pass
+                return {"status": "deleted", "kind": kind, "count": count}
+
+            if kind == "notes":
+                count = db.query(Note).count()
+                db.query(Note).delete()
+                db.commit()
                 return {"status": "deleted", "kind": kind, "count": count}
 
             if kind == "tasks":

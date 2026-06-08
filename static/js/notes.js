@@ -905,7 +905,7 @@ function _checkReminders() {
 
 function _fireReminder(note) {
   const title = note.title || 'Note reminder';
-  // Include the verbatim note content so the email/notification actually
+  // Include the verbatim note content so the notification actually
   // shows what to do, not just a count. Cap the per-item lines (8 max) and
   // total length so the body stays inbox-friendly.
   let rawBody;
@@ -926,7 +926,7 @@ function _fireReminder(note) {
   }
 
   // Ask the server to dispatch according to user settings. The server may
-  // return an LLM-written synthesis line and/or send an email. We still show
+  // return an LLM-written synthesis line. We still show
   // a local browser notification so the user gets immediate feedback even if
   // the server path is disabled or slow.
   const showLocal = (body) => {
