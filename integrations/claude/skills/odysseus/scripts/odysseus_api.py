@@ -15,8 +15,6 @@ def _usage() -> int:
     print("  odysseus_api.py capabilities", file=sys.stderr)
     print("  odysseus_api.py todos list", file=sys.stderr)
     print("  odysseus_api.py todos add TITLE", file=sys.stderr)
-    print("  odysseus_api.py emails list [limit]", file=sys.stderr)
-    print("  odysseus_api.py emails read UID", file=sys.stderr)
     print("  odysseus_api.py METHOD /api/codex/path [json-body]", file=sys.stderr)
     return 2
 

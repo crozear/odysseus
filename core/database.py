@@ -864,6 +864,33 @@ def _migrate_add_pinned_models_column():
     except Exception as e:
         logging.getLogger(__name__).warning(f"pinned_models migration failed: {e}")
 
+def _migrate_add_notes_sort_order():
+    """Add sort_order, image_url, repeat columns to notes if they don't exist."""
+    import sqlite3
+    db_path = DATABASE_URL.replace("sqlite:///", "")
+    if not os.path.exists(db_path):
+        return
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.execute("PRAGMA table_info(notes)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if columns and "sort_order" not in columns:
+            conn.execute("ALTER TABLE notes ADD COLUMN sort_order INTEGER DEFAULT 0")
+        if columns and "image_url" not in columns:
+            conn.execute("ALTER TABLE notes ADD COLUMN image_url TEXT")
+        if columns and "repeat" not in columns:
+            conn.execute("ALTER TABLE notes ADD COLUMN repeat TEXT DEFAULT 'none'")
+        if columns and "ai_classification" not in columns:
+            conn.execute("ALTER TABLE notes ADD COLUMN ai_classification TEXT")
+        if columns and "ai_content_hash" not in columns:
+            conn.execute("ALTER TABLE notes ADD COLUMN ai_content_hash TEXT")
+        if columns and "agent_session_id" not in columns:
+            conn.execute("ALTER TABLE notes ADD COLUMN agent_session_id TEXT")
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"notes migration failed: {e}")
+
 def _migrate_add_mode_column():
     """Add mode column to sessions table if it doesn't exist."""
     import sqlite3
@@ -1020,7 +1047,8 @@ def _migrate_assign_legacy_owner():
         # exists; the explicit list documents intent.
         tables = [
             "sessions", "memories", "gallery_images", "user_tools",
-            "comparisons", "documents", "signatures",
+            "comparisons", "documents", "signatures", "notes",
+            "integrations",
             "scheduled_tasks", "task_runs", "crew_members",
             "gallery_albums", "gallery_people", "user_tool_data",
             "api_tokens", "webhooks",
@@ -1318,6 +1346,7 @@ def init_db():
     _migrate_add_hidden_models_column()
     _migrate_add_cached_models_column()
     _migrate_add_pinned_models_column()
+    _migrate_add_notes_sort_order()
     _migrate_add_model_type_column()
     _migrate_add_model_endpoint_refresh_columns()
     _migrate_add_model_endpoint_owner_column()
