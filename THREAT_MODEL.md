@@ -29,7 +29,7 @@ Odysseus is designed for **trusted users on a private network**, not public expo
 | Vault | ✓ | ✗ |
 | Settings | ✓ | ✗ |
 
-Non-admin defaults are in `core/auth.py:DEFAULT_PRIVILEGES`. Tool enforcement is in `src/tool_security.py:NON_ADMIN_BLOCKED_TOOLS`. Any tool whose name starts with `mcp__` is also blocked for non-admins. Admins always get full access regardless of stored privilege values.
+This fork runs single-user. The non-admin tool-gating layer (formerly `src/tool_security.py:NON_ADMIN_BLOCKED_TOOLS`) has been removed — the sole owner always has full tool access.
 
 ## Authentication
 
@@ -47,16 +47,11 @@ Agent tool calls reach admin-gated HTTP routes over an in-process HTTP loopback.
 2. Loopback requests carry `X-Odysseus-Internal-Token: <token>` or have `request.state.current_user` already set to `"internal-tool"` by the auth middleware.
 3. `require_admin` recognises either signal and grants access without checking the session user.
 
-The agent may be running in a non-admin user's session, but tool dispatch first calls `src/tool_security.py:owner_is_admin_or_single_user` to verify the session owner is an admin before issuing any loopback call. Non-admin users cannot invoke admin tools even via the agent.
+Because this fork is single-user, the agent's session owner always resolves to the admin, so there is no per-owner gate on loopback calls.
 
 ## Prompt-Injection Hardening
 
-External content that reaches the LLM is treated as untrusted via `src/prompt_security.py`:
-
-- `untrusted_context_message(label, content)` wraps the content in a `user`-role message with a header block instructing the model not to follow instructions inside it. Content goes in as data, not as a system instruction.
-- `UNTRUSTED_CONTEXT_POLICY` is a system-prompt preamble that states the same policy at the top of every session where untrusted data may appear.
-
-**Untrusted surfaces that must go through this wrapper:** web search results, fetched URLs, emails (read), saved memories, skill text, notes, and any tool output sourced from outside the server. Injecting untrusted content directly into the system role is a security bug.
+The dedicated untrusted-content wrapper (formerly `src/prompt_security.py`) has been removed in this single-user fork. With no other users to defend against, external content (web results, fetched URLs, memories, skills, notes, tool output) is not wrapped in an untrusted-context envelope. Re-introduce such a layer if this instance is ever exposed to multiple or untrusted users.
 
 ## Security Headers
 

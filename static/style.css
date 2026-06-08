@@ -30700,3 +30700,255 @@ body.theme-frosted .modal {
   0%   { box-shadow: 0 0 0 2px var(--accent, var(--red)); }
   100% { box-shadow: 0 0 0 2px transparent; }
 }
+
+/* GitHub Copilot device-flow connect block (model endpoints → API) */
+.adm-copilot-connect {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.adm-copilot-connect #adm-copilotStatus { flex-basis: 100%; margin-top: 0; }
+.adm-copilot-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.adm-copilot-wait {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: color-mix(in srgb, var(--fg) 70%, transparent);
+}
+.adm-copilot-coderow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.adm-copilot-code-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: color-mix(in srgb, var(--fg) 45%, transparent);
+}
+.adm-copilot-code {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  padding: 4px 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--fg);
+  user-select: all;
+}
+.adm-copilot-copy { margin-left: auto; }
+.adm-copilot-auth {
+  text-align: center;
+  text-decoration: none;
+  padding: 7px 12px;
+  font-size: 12px;
+}
+.adm-copilot-hint {
+  font-size: 11px;
+  line-height: 1.4;
+  color: color-mix(in srgb, var(--fg) 45%, transparent);
+}
+/* ── Workspace picker ───────────────────────────────────────────── */
+/* Layout (width/flex column/max-height) inherited from base .modal-content. */
+/* Editable path/address bar: reuses .styled-prompt-input for border/bg/radius/
+   focus ring (set in the element's class list). Overrides only the deltas:
+   mono font, and full-bleed via flex stretch with no horizontal margin (the
+   modal-content's 10px padding is the gutter) instead of the base width:100%,
+   which overflowed against the overflow:auto scrollbar. */
+.workspace-cur {
+  align-self: stretch;
+  width: auto;
+  min-width: 0;
+  margin: 4px 0 8px;
+  font-family: var(--mono, monospace);
+  font-size: 12px;
+}
+/* flex/overflow inherited from base .modal-body; only the padding differs. */
+.workspace-body { padding: 6px 0; }
+.workspace-row {
+  padding: 7px 18px;
+  cursor: pointer;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.workspace-row > span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.workspace-row-icon { flex-shrink: 0; opacity: 0.75; }
+.workspace-row:hover {
+  background: color-mix(in srgb, var(--border) 20%, transparent);
+}
+.workspace-up { opacity: 0.7; }
+.workspace-empty { padding: 14px 18px; opacity: 0.5; font-size: 13px; }
+.workspace-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 18px;
+  border-top: 1px solid var(--border);
+}
+/* Cookbook serve panel: Launch + ^ split button pair */
+.hwfit-serve-launch-group {
+  display: inline-flex;
+  align-items: stretch;
+  vertical-align: middle;
+}
+.hwfit-serve-launch-group .hwfit-serve-launch {
+  border-top-right-radius: 0 !important;
+  border-bottom-right-radius: 0 !important;
+  margin-right: 0 !important;
+}
+.hwfit-serve-launch-group .hwfit-serve-schedule-arrow {
+  border-top-left-radius: 0 !important;
+  border-bottom-left-radius: 0 !important;
+  border-left: 1px solid var(--border) !important;
+  padding: 0 8px !important;
+  min-width: 26px;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Schedule form — mounted inside the cookbook serve panel. Uses the
+   theme tokens (--bg, --panel, --border, --accent, --red) so it
+   matches the rest of the cookbook chrome instead of inline whites. */
+.hwfit-schedule-form {
+  margin: 10px 0 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.hwfit-schedule-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  opacity: 0.95;
+  flex-wrap: wrap;
+}
+.hwfit-schedule-title svg { opacity: 0.7; flex-shrink: 0; }
+.hwfit-schedule-title-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hwfit-schedule-title-spacer { flex: 1; min-width: 8px; }
+.hwfit-schedule-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.hwfit-schedule-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 11px;
+  opacity: 0.75;
+}
+.hwfit-schedule-field input[type="time"] {
+  font: inherit;
+  min-width: 90px;
+}
+.hwfit-schedule-label {
+  font-size: 11px;
+  opacity: 0.75;
+}
+.hwfit-sched-days {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.hwfit-sched-day-chip {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 10px;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.hwfit-sched-day-chip:hover { border-color: var(--accent, var(--red)); }
+.hwfit-sched-day-chip.is-on {
+  background: var(--accent, var(--red));
+  color: var(--panel, #fff);
+  border-color: var(--accent, var(--red));
+}
+.hwfit-schedule-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.hwfit-schedule-actions-spacer { flex: 1; }
+
+/* Days row hosts the day-chip strip on the left and the Cancel / Save
+   action buttons on the right. The spacer between them pushes the
+   actions to the right edge. */
+.hwfit-schedule-days-row {
+  align-items: center;
+}
+/* Cancel + Save sit on the right side of the days row with matching
+   icon-plus-label chrome. */
+.hwfit-sched-cancel,
+.hwfit-sched-save {
+  display: inline-flex !important;
+  align-items: center;
+}
+.hwfit-schedule-mirror-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  opacity: 0.9;
+  cursor: pointer;
+  user-select: none;
+}
+.hwfit-schedule-mirror-label { white-space: nowrap; }
+.hwfit-schedule-mirror-switch { transform: scale(0.85); transform-origin: left center; }
+.hwfit-sched-err {
+  font-size: 12px;
+  color: var(--red, #ff6b6b);
+  display: none;
+}
+.hwfit-sched-err.is-visible { display: block; }
+@media (max-width: 600px) {
+  .hwfit-schedule-row { gap: 8px; }
+  .hwfit-sched-day-chip { width: 36px; height: 36px; font-size: 11px; }
+}
+
+/* Brief outline flash on a note card when it's the target of a
+   #note-<id> link click from chat — same pattern as the cookbook
+   task flash, just scoped to .note-card. */
+.note-card-flash {
+  animation: note-card-flash-anim 1.6s ease-out;
+}
+@keyframes note-card-flash-anim {
+  0%   { box-shadow: 0 0 0 2px var(--accent, var(--red)); }
+  100% { box-shadow: 0 0 0 2px transparent; }
+}

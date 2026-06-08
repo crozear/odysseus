@@ -34,7 +34,6 @@ from dotenv import load_dotenv
 # is silently ignored and the user is unexpectedly forced to log in (issue #142).
 # utf-8-sig reads plain UTF-8 (no BOM) identically, so this is safe everywhere.
 load_dotenv(encoding="utf-8-sig")
-import uuid
 
 import asyncio
 import logging
@@ -526,6 +525,9 @@ upload_cleanup_task = None
 from routes.emoji_routes import setup_emoji_routes
 app.include_router(setup_emoji_routes())
 
+from routes.workspace_routes import setup_workspace_routes
+app.include_router(setup_workspace_routes())
+
 # Sessions
 from routes.session_routes import setup_session_routes
 session_config = {"REQUEST_TIMEOUT": REQUEST_TIMEOUT, "OPENAI_API_KEY": OPENAI_API_KEY, "SESSIONS_FILE": SESSIONS_FILE}
@@ -685,10 +687,8 @@ from routes.note_routes import setup_note_routes
 app.include_router(setup_note_routes(task_scheduler))
 
 # Codex integration — HTTP surface for the Codex plugin/MCP bridge. Reuses
-# api_token scopes (todos:read|write, email:read|draft|send) so external
-# Codex sessions can only touch the data the user explicitly allowed. Mounted
-# AFTER email so the codex_routes can borrow the email router for shared
-# search/threading helpers.
+# api_token scopes (todos:read|write, memory, documents) so external Codex
+# sessions can only touch the data the user explicitly allowed.
 from routes.codex_routes import setup_codex_routes, setup_claude_routes
 app.include_router(setup_codex_routes(
     memory_router=memory_router,

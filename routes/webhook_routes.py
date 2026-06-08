@@ -11,7 +11,6 @@ from pydantic import BaseModel, Field
 
 from core.database import SessionLocal, Webhook, ModelEndpoint
 from src.auth_helpers import owner_filter
-from src.url_security import validate_public_http_url
 from src.webhook_manager import WebhookManager, validate_webhook_url, validate_events
 
 logger = logging.getLogger(__name__)
@@ -276,15 +275,10 @@ def setup_webhook_routes(
             api_key = body.api_key.strip()
             model = body.model or "deepseek-chat"
 
-            # Validate only token-supplied direct base_url; auto-resolved known-provider
-            # URLs are not subject to extra local/LAN blocking beyond existing provider logic.
+            # Single-user deployment: accept a token-supplied direct base_url as-is.
             direct_base_url = body.base_url.strip().rstrip("/") if body.base_url else None
             if direct_base_url:
-                try:
-                    base_url = validate_public_http_url(direct_base_url)
-                except ValueError as e:
-                    detail = str(e).replace("URL", "base_url", 1)
-                    raise HTTPException(400, detail)
+                base_url = direct_base_url
             else:
                 base_url = _resolve_base_url(model, body.provider)
             if not base_url:

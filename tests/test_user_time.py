@@ -81,8 +81,8 @@ def test_agent_system_prompt_includes_shared_current_time(monkeypatch):
     assert "BASE PROMPT" in messages[0]["content"]
 
 
-def test_calendar_relative_time_parser_handles_dotted_pm(monkeypatch):
-    import routes.calendar_routes as calendar_routes
+def test_relative_time_parser_handles_dotted_pm(monkeypatch):
+    import src.due_date as due_date
 
     class FixedDateTime(datetime):
         @classmethod
@@ -95,9 +95,9 @@ def test_calendar_relative_time_parser_handles_dotted_pm(monkeypatch):
     clear_user_time_context()
     set_user_tz_offset(600)
     set_user_tz_name("Australia/Brisbane")
-    monkeypatch.setattr(calendar_routes, "datetime", FixedDateTime)
+    monkeypatch.setattr(due_date, "datetime", FixedDateTime)
 
-    parsed = calendar_routes.parse_due_for_user("tomorrow at 1:30 p.m")
+    parsed = due_date.parse_due_for_user("tomorrow at 1:30 p.m")
 
     assert parsed == "2026-06-02T13:30:00+10:00"
 

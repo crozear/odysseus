@@ -6617,7 +6617,7 @@ import * as Modals from './modalManager.js';
     const text = textarea.value || '';
     let body;
     if (lang === 'markdown' && markdownModule?.mdToHtml) {
-      body = markdownModule.mdToHtml(text);
+      body = markdownModule.mdToHtml(text, { shortcodes: false }); // export: keep :shortcodes: literal
     } else {
       body = '<pre style="white-space:pre-wrap;font-size:12px;font-family:monospace;">' +
         text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</pre>';
@@ -6648,7 +6648,7 @@ import * as Modals from './modalManager.js';
     // Render content as HTML for PDF
     let html;
     if (lang === 'markdown' && markdownModule?.mdToHtml) {
-      html = markdownModule.mdToHtml(text);
+      html = markdownModule.mdToHtml(text, { shortcodes: false }); // export: keep :shortcodes: literal
     } else {
       html = '<pre style="white-space:pre-wrap;font-size:11px;font-family:monospace;color:#000;background:#fff;">' +
         text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</pre>';
@@ -6778,7 +6778,7 @@ import * as Modals from './modalManager.js';
     if (active) {
       const md = textarea.value || '';
       if (markdownModule && markdownModule.mdToHtml) {
-        preview.innerHTML = markdownModule.mdToHtml(md);
+        preview.innerHTML = markdownModule.mdToHtml(md, { shortcodes: false }); // doc preview: keep :shortcodes: literal
       } else {
         preview.innerHTML = md.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g, '<br>');
       }
