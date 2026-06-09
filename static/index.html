@@ -1138,6 +1138,27 @@
                 <span>Streaming <span class="preset-hint-icon" title="Stream the response token-by-token. Turn off to receive the full reply at once.">?</span></span>
                 <input type="checkbox" id="custom-stream" checked>
               </label>
+              <!-- Prompt caching (Claude only). Each row: main toggle left, 1h-TTL toggle right (shown when on) -->
+              <div class="preset-cache-row">
+                <label class="preset-cache-main" for="cache-system">
+                  <input type="checkbox" id="cache-system">
+                  <span>Cache system prompt <span class="preset-hint-icon" title="Add a prompt-cache breakpoint after the system prompt. Re-uses the stable prefix across requests (~90% cheaper reads, lower latency). Claude models only; best when the system prompt doesn't change between turns.">?</span></span>
+                </label>
+                <label class="preset-cache-ttl" for="cache-system-ttl" id="cache-system-ttl-wrap" hidden>
+                  <input type="checkbox" id="cache-system-ttl">
+                  <span>1h TTL <span class="preset-hint-icon" title="Keep this cache alive for 1 hour instead of 5 minutes. Write cost rises from 1.25x to 2x base; reads stay cheap. Worth it only if the prompt is reused after 5 min but within the hour.">?</span></span>
+                </label>
+              </div>
+              <div class="preset-cache-row">
+                <label class="preset-cache-main" for="cache-chat">
+                  <input type="checkbox" id="cache-chat">
+                  <span>Cache chat history <span class="preset-hint-icon" title="Add rolling cache breakpoints inside the message history so most of the conversation is re-read from cache each turn. Great for long chats and agent loops. Claude models only.">?</span></span>
+                </label>
+                <label class="preset-cache-ttl" for="cache-chat-ttl" id="cache-chat-ttl-wrap" hidden>
+                  <input type="checkbox" id="cache-chat-ttl">
+                  <span>1h TTL <span class="preset-hint-icon" title="1-hour cache for the chat history. Note: because the system prompt precedes the history in the request, enabling this also bumps the system-prompt cache up to 1h (Anthropic forbids a longer TTL appearing after a shorter one).">?</span></span>
+                </label>
+              </div>
             </div>
             <!-- Prompt (character/persona) tab -->
             <div class="preset-chartab" data-chartab-panel="character" style="display:none">

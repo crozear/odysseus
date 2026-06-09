@@ -88,6 +88,7 @@ REQUEST_TIMEOUT = 5
 # Substring matching — use the shortest unique prefix so variants get caught.
 KNOWN_CONTEXT_WINDOWS = {
     # --- Anthropic ---
+    'claude-fable-5': 1000000,
     'claude-sonnet-4-5': 200000,
     'claude-sonnet-4-6': 200000,
     'claude-sonnet-4': 200000,

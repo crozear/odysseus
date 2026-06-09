@@ -45,6 +45,10 @@ def setup_preset_routes(preset_manager) -> APIRouter:
                 stream=preset_update.stream,
                 user_persona_name=preset_update.user_persona_name,
                 user_persona_prompt=preset_update.user_persona_prompt,
+                cache_system=preset_update.cache_system,
+                cache_system_ttl=preset_update.cache_system_ttl,
+                cache_chat=preset_update.cache_chat,
+                cache_chat_ttl=preset_update.cache_chat_ttl,
             )
             if success:
                 return {"success": True, "message": "Custom preset updated"}

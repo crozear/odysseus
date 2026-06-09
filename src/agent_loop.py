@@ -1711,6 +1711,13 @@ async def stream_agent_loop(
     plan_mode: bool = False,
     approved_plan: Optional[str] = None,
     tool_policy: Optional[ToolPolicy] = None,
+    thinking_enabled: bool = False,
+    thinking_adaptive: bool = False,
+    thinking_effort: str = "auto",
+    cache_system: Optional[bool] = None,
+    cache_system_ttl: str = "5m",
+    cache_chat: bool = False,
+    cache_chat_ttl: str = "5m",
     _is_teacher_run: bool = False,
 ) -> AsyncGenerator[str, None]:
     """Streaming agent loop generator.
@@ -2105,6 +2112,10 @@ async def stream_agent_loop(
     # so the user can resume instead of the turn silently stalling.
     _exhausted_rounds = False
 
+    # Set when a safety classifier refuses a round (Fable 5+ stop_reason
+    # "refusal"). Partial output is discarded; the loop ends immediately.
+    _refused = False
+
     for round_num in range(1, max_rounds + 1):
         round_response = ""
         round_reasoning = ""  # reasoning_content deltas (DeepSeek-thinking, vLLM --reasoning-parser)
@@ -2178,6 +2189,13 @@ async def stream_agent_loop(
             prompt_type=prompt_type if round_num == 1 else None,
             tools=all_tool_schemas if all_tool_schemas else None,
             timeout=agent_stream_timeout,
+            thinking_enabled=thinking_enabled,
+            thinking_adaptive=thinking_adaptive,
+            thinking_effort=thinking_effort,
+            cache_system=cache_system,
+            cache_system_ttl=cache_system_ttl,
+            cache_chat=cache_chat,
+            cache_chat_ttl=cache_chat_ttl,
         ):
             if time.time() > _round_deadline:
                 logger.warning(f"[agent] round {round_num} stream exceeded wall-clock deadline; cutting off")
@@ -2259,6 +2277,16 @@ async def stream_agent_loop(
                         actual_model = data.get("model") or actual_model
                         data["requested_model"] = requested_model
                         yield f"data: {json.dumps(data)}\n\n"
+                    elif data.get("type") == "refusal":
+                        # Safety classifier fired (Fable 5+). Discard everything
+                        # produced this round and end the turn — the partial
+                        # output is not trustworthy and must not be acted on.
+                        _refused = True
+                        round_response = ""
+                        round_reasoning = ""
+                        native_tool_calls = []
+                        full_response = ""
+                        yield chunk
                     elif "delta" in data:
                         if not first_token_received:
                             time_to_first_token = time.time() - total_start
@@ -2331,6 +2359,11 @@ async def stream_agent_loop(
                 # Forward error events to frontend as visible text
                 yield chunk
             # Intercept [DONE] — don't forward until all rounds finish
+
+        # A safety refusal ends the turn now: no tools, no further rounds, no
+        # empty-response fallback (the refusal notice was already streamed).
+        if _refused:
+            break
 
         tool_blocks, used_native = _resolve_tool_blocks(round_response, native_tool_calls, round_num, is_api_model=_is_api_model)
 
@@ -2904,12 +2937,15 @@ async def stream_agent_loop(
         yield f'data: {json.dumps({"type": "rounds_exhausted", "rounds": max_rounds})}\n\n'
 
     # If the response is completely empty and no tools were executed,
-    # yield a fallback message so the user is not left hanging.
-    full_response, _fallback_chunk = _empty_response_fallback(
-        full_response, round_reasoning, tool_events
-    )
-    if _fallback_chunk:
-        yield _fallback_chunk
+    # yield a fallback message so the user is not left hanging. Skipped on a
+    # safety refusal — the empty response there is intentional, and the refusal
+    # notice already told the user what happened.
+    if not _refused:
+        full_response, _fallback_chunk = _empty_response_fallback(
+            full_response, round_reasoning, tool_events
+        )
+        if _fallback_chunk:
+            yield _fallback_chunk
 
     # --- Final metrics ---
     total_duration = time.time() - total_start
@@ -2930,7 +2966,7 @@ async def stream_agent_loop(
     # gets a turn (with its own tool calls forwarded to the user) and
     # a skill is saved ONLY if the teacher actually succeeds. Skipped
     # when we ARE the teacher to avoid recursion.
-    if not _is_teacher_run and not guide_only:
+    if not _is_teacher_run and not guide_only and not _refused:
         try:
             from src.teacher_escalation import run_teacher_inline
             async for evt in run_teacher_inline(

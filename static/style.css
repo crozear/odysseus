@@ -30690,6 +30690,32 @@ body.theme-frosted .modal {
   color: var(--fg);
 }
 .preset-stream-row input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; }
+/* Inject-tab prompt-cache rows: main toggle left, 1h-TTL toggle right */
+.preset-cache-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg);
+}
+.preset-cache-row .preset-cache-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.preset-cache-row .preset-cache-ttl {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  opacity: 0.9;
+}
+.preset-cache-row .preset-cache-ttl[hidden] { display: none; }
+.preset-cache-row input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; }
 /* Brief outline flash on a note card when it's the target of a
    #note-<id> link click from chat — same pattern as the cookbook
    task flash, just scoped to .note-card. */

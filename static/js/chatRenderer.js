@@ -598,10 +598,11 @@ export function getModelInfo(modelName) {
 // the Inject tab to gate which controls/effort levels are shown. Matched by
 // LONGEST prefix against the model id.
 //   thinking : 'adaptive' (adaptive-only), 'extended' (extended-only),
-//              or 'both' (adaptive toggle available, else extended)
+//              'both' (adaptive toggle available, else extended), or
+//              'always_on' (thinking can't be disabled — Fable 5+)
 //   temp/topP/topK : whether the sampling param is accepted at all
 const ANTHROPIC_CAPS = {
-  'claude-fable-5':   { thinking: 'adaptive', effort: ['auto','low','medium','high','xhigh','max'], temp: false, topP: false, topK: false, maxOut: 128000 },
+  'claude-fable-5':   { thinking: 'always_on', effort: ['auto','low','medium','high','xhigh','max'], temp: false, topP: false, topK: false, maxOut: 128000 },
   'claude-opus-4-8':   { thinking: 'adaptive', effort: ['auto','low','medium','high','xhigh','max'], temp: false, topP: false, topK: false, maxOut: 128000 },
   'claude-opus-4-7':   { thinking: 'adaptive', effort: ['auto','low','medium','high','xhigh','max'], temp: false, topP: false, topK: false, maxOut: 128000 },
   'claude-opus-4-6':   { thinking: 'both',     effort: ['auto','low','medium','high','max'],          temp: true,  topP: true,  topK: true,  maxOut: 128000 },

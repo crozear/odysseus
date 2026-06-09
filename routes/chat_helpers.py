@@ -35,6 +35,12 @@ class PresetInfo:
     top_k: Optional[int] = None
     stream: bool = True
     user_persona: Optional[str] = None
+    # Anthropic prompt-cache controls. cache_system None = legacy auto
+    # heuristic (no explicit preset choice); TTLs are "5m" or "1h".
+    cache_system: Optional[bool] = None
+    cache_system_ttl: str = "5m"
+    cache_chat: bool = False
+    cache_chat_ttl: str = "5m"
 
 
 @dataclass
@@ -291,7 +297,7 @@ def try_fallback_endpoint(sess, session_id: str) -> dict | None:
 
 def extract_preset(chat_handler, preset_id) -> PresetInfo:
     """Extract preset parameters via chat_handler."""
-    temperature, max_tokens, system_prompt, char_name, top_p, top_k, stream, user_persona = (
+    temperature, max_tokens, system_prompt, char_name, top_p, top_k, stream, user_persona, cache_opts = (
         chat_handler.validate_and_extract_preset(preset_id)
     )
     return PresetInfo(
@@ -303,6 +309,10 @@ def extract_preset(chat_handler, preset_id) -> PresetInfo:
         top_k=top_k,
         stream=stream,
         user_persona=user_persona,
+        cache_system=cache_opts["cache_system"],
+        cache_system_ttl=cache_opts["cache_system_ttl"],
+        cache_chat=cache_opts["cache_chat"],
+        cache_chat_ttl=cache_opts["cache_chat_ttl"],
     )
 
 

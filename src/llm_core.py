@@ -277,7 +277,7 @@ ANTHROPIC_MODELS = [
 #   max_out  : max output tokens
 _ANTHROPIC_DEFAULT_EFFORTS = ("auto", "low", "medium", "high")
 _ANTHROPIC_FEATURES = {
-    "claude-fable-5":   {"thinking": "adaptive", "effort": ("auto", "low", "medium", "high", "xhigh", "max"), "temp": False, "top_p": False, "top_k": False, "max_out": 128000},
+    "claude-fable-5":   {"thinking": "always_on", "effort": ("auto", "low", "medium", "high", "xhigh", "max"), "temp": False, "top_p": False, "top_k": False, "max_out": 128000},
     "claude-opus-4-8":   {"thinking": "adaptive", "effort": ("auto", "low", "medium", "high", "xhigh", "max"), "temp": False, "top_p": False, "top_k": False, "max_out": 128000},
     "claude-opus-4-7":   {"thinking": "adaptive", "effort": ("auto", "low", "medium", "high", "xhigh", "max"), "temp": False, "top_p": False, "top_k": False, "max_out": 128000},
     "claude-opus-4-6":   {"thinking": "both",     "effort": ("auto", "low", "medium", "high", "max"),          "temp": True,  "top_p": True,  "top_k": True,  "max_out": 128000},
@@ -654,10 +654,114 @@ def _convert_openai_content_to_anthropic(content):
     return converted
 
 
+# ── Prompt-cache TTL handling ───────────────────────────────────────────
+# Anthropic evaluates breakpoints in request order (tools → system → messages)
+# and rejects (400) any request where a longer TTL appears AFTER a shorter
+# one, so earlier breakpoints must be promoted up to the longest later TTL.
+_TTL_RANK = {"5m": 0, "1h": 1}
+_NON_CACHEABLE_BLOCK_TYPES = {"thinking", "redacted_thinking"}
+
+
+def _normalize_ttl(ttl):
+    """Clamp an arbitrary TTL value to a supported one ("5m" default)."""
+    return ttl if ttl in _TTL_RANK else "5m"
+
+
+def _max_ttl(*ttls):
+    """Return the longest TTL among the args (ignoring None). None if all None."""
+    best = None
+    for t in ttls:
+        if t is None:
+            continue
+        if best is None or _TTL_RANK.get(t, 0) > _TTL_RANK.get(best, 0):
+            best = t
+    return best
+
+
+def _cache_block(ttl):
+    """Build a cache_control object. "5m" is the API default, so omit it."""
+    if ttl == "1h":
+        return {"type": "ephemeral", "ttl": "1h"}
+    return {"type": "ephemeral"}
+
+
+def _mark_last_block_cacheable(msg, ttl):
+    """Attach cache_control to the last *cacheable* content block of `msg`.
+
+    Coerces string content into a single text block. Skips thinking/empty
+    blocks that Anthropic refuses to cache. Marked blocks are replaced with
+    shallow copies — block dicts can be shared with the caller's message
+    history, and cache_control must never leak back into it. No-op if there
+    is nothing cacheable. Returns True if a breakpoint was placed.
+    """
+    content = msg.get("content")
+    if isinstance(content, str):
+        if not content:
+            return False
+        content = [{"type": "text", "text": content}]
+        msg["content"] = content
+    if not isinstance(content, list) or not content:
+        return False
+    for j in range(len(content) - 1, -1, -1):
+        block = content[j]
+        if not isinstance(block, dict):
+            continue
+        btype = block.get("type")
+        if btype in _NON_CACHEABLE_BLOCK_TYPES:
+            continue
+        if btype == "text" and not block.get("text"):
+            continue  # empty text blocks can't be cached
+        marked = dict(block)
+        marked["cache_control"] = _cache_block(ttl)
+        content[j] = marked
+        return True
+    return False
+
+
+def _apply_cache_control_at_depth(messages, depth, ttl):
+    """Rolling chat-history cache: drop breakpoints at `depth` and `depth + 2`.
+
+    Walks newest -> oldest, skips the trailing assistant 'prefill' (it changes
+    every turn, so caching it guarantees a miss), and counts role *switches* as
+    depth. Two breakpoints two switches apart leapfrog as the conversation grows
+    (each new turn = ~2 role switches): one breakpoint lands on the previous
+    request's cached boundary (a cheap cache READ of the whole history) while the
+    other extends the cache (a WRITE that becomes next turn's hit). Mutates
+    `messages` in place. Places at most 2 breakpoints.
+    """
+    if depth is None or depth < 0:
+        return
+    passed_prefill = False
+    seen_depth = 0
+    previous_role = None
+    for i in range(len(messages) - 1, -1, -1):
+        role = messages[i].get("role")
+        if not passed_prefill and role == "assistant":
+            continue  # never cache the trailing assistant prefill
+        passed_prefill = True
+        if role != previous_role:
+            if seen_depth == depth or seen_depth == depth + 2:
+                _mark_last_block_cacheable(messages[i], ttl)
+            if seen_depth == depth + 2:
+                break
+            seen_depth += 1
+            previous_role = role
+
+
 def _build_anthropic_payload(model, messages, temperature, max_tokens, stream=False, tools=None,
                              top_p=None, top_k=None, thinking_enabled=False,
-                             thinking_adaptive=False, thinking_effort="auto"):
-    """Convert OpenAI-style messages to Anthropic format."""
+                             thinking_adaptive=False, thinking_effort="auto",
+                             cache_system=None, cache_system_ttl="5m",
+                             cache_chat=False, cache_chat_ttl="5m",
+                             cache_chat_depth=2):
+    """Convert OpenAI-style messages to Anthropic format.
+
+    Prompt-cache controls: `cache_system=None` keeps the legacy heuristic
+    (cache when tools are present or the stable prefix is big); True/False is
+    an explicit per-preset choice. `cache_chat` adds rolling breakpoints
+    inside the message history. TTLs are "5m" or "1h", independent per
+    section — see the consolidated caching block at the end.
+    """
     system_parts = []
     chat_messages = []
     for m in messages:
@@ -715,23 +819,33 @@ def _build_anthropic_payload(model, messages, temperature, max_tokens, stream=Fa
     # extended carries it as budget_tokens (a fraction of max_tokens).
     thinking_obj = None
     output_config = None
-    if thinking_enabled and features:
+    thinking_on = False
+    if features:
         mode = features.get("thinking")
-        use_adaptive = True if mode == "adaptive" else (False if mode == "extended" else bool(thinking_adaptive))
-        eff = (thinking_effort or "auto").lower()
-        if use_adaptive:
-            thinking_obj = {"type": "adaptive"}
+        if mode == "always_on":
+            # Fable 5+: thinking is always active, never send the thinking param.
+            # Still honour effort (sent via output_config) regardless of the UI toggle.
+            thinking_on = True
+            eff = (thinking_effort or "auto").lower()
             if eff != "auto":
                 output_config = {"effort": eff}
-        else:
-            thinking_obj = {"type": "enabled"}
-            frac = _THINKING_EFFORT_BUDGET.get(eff)
-            if frac is not None:
-                budget = max(_THINKING_MIN_BUDGET, int(resolved_max * frac))
-                # Anthropic requires budget_tokens < max_tokens.
-                if budget >= resolved_max:
-                    budget = max(_THINKING_MIN_BUDGET, resolved_max - 1024)
-                thinking_obj["budget_tokens"] = budget
+        elif thinking_enabled:
+            use_adaptive = True if mode == "adaptive" else (False if mode == "extended" else bool(thinking_adaptive))
+            eff = (thinking_effort or "auto").lower()
+            if use_adaptive:
+                thinking_obj = {"type": "adaptive"}
+                if eff != "auto":
+                    output_config = {"effort": eff}
+            else:
+                thinking_obj = {"type": "enabled"}
+                frac = _THINKING_EFFORT_BUDGET.get(eff)
+                if frac is not None:
+                    budget = max(_THINKING_MIN_BUDGET, int(resolved_max * frac))
+                    # Anthropic requires budget_tokens < max_tokens.
+                    if budget >= resolved_max:
+                        budget = max(_THINKING_MIN_BUDGET, resolved_max - 1024)
+                    thinking_obj["budget_tokens"] = budget
+            thinking_on = True
     if thinking_obj is not None:
         payload["thinking"] = thinking_obj
     if output_config is not None:
@@ -744,7 +858,6 @@ def _build_anthropic_payload(model, messages, temperature, max_tokens, stream=Fa
     allow_temp = features.get("temp", True) if features else True
     allow_top_p = features.get("top_p", True) if features else True
     allow_top_k = features.get("top_k", True) if features else True
-    thinking_on = thinking_obj is not None
     if allow_top_k and top_k is not None:
         try:
             tk = int(top_k)
@@ -763,6 +876,8 @@ def _build_anthropic_payload(model, messages, temperature, max_tokens, stream=Fa
         elif allow_top_p and top_p is not None:
             payload["top_p"] = max(0.0, min(float(top_p), 1.0))
 
+    sys_cache_idx = None   # where the system breakpoint would go (anchor-aware)
+    sys_cached_len = 0     # chars in the stable prefix, for the legacy size gate
     if system_parts:
         # Send `system` as a LIST of structured text blocks — one per upstream
         # system message — so each stays an independently sized unit. A single
@@ -771,9 +886,7 @@ def _build_anthropic_payload(model, messages, temperature, max_tokens, stream=Fa
         # each round (~90% cheaper, lower TTFB), while volatile per-turn context
         # appended after it (memory, RAG, web, fetched URLs) stays uncached. The
         # breakpoint invalidates only when a prefix block changes — the intended
-        # behavior for prompt/persona edits between chats. Skip caching tiny
-        # one-off prefixes (no reuse); `tools` means an agentic/multi-round call
-        # where the prefix is always reused.
+        # behavior for prompt/persona edits between chats.
         system_blocks = []
         anchor_idx = None  # producer-marked stable-prefix tail, if any
         for text, marked in system_parts:
@@ -786,10 +899,8 @@ def _build_anthropic_payload(model, messages, temperature, max_tokens, stream=Fa
             # If the producer pinned a stable-prefix tail, cache up to and
             # including THAT block (so trailing volatile context stays out of the
             # cached region); otherwise fall back to caching the last block.
-            cache_idx = anchor_idx if anchor_idx is not None else len(system_blocks) - 1
-            cached_len = sum(len(b["text"]) for b in system_blocks[:cache_idx + 1])
-            if tools or cached_len > 4000:
-                system_blocks[cache_idx]["cache_control"] = {"type": "ephemeral"}
+            sys_cache_idx = anchor_idx if anchor_idx is not None else len(system_blocks) - 1
+            sys_cached_len = sum(len(b["text"]) for b in system_blocks[:sys_cache_idx + 1])
             payload["system"] = system_blocks
     if stream:
         payload["stream"] = True
@@ -805,10 +916,40 @@ def _build_anthropic_payload(model, messages, temperature, max_tokens, stream=Fa
                     "input_schema": fn.get("parameters", {"type": "object", "properties": {}}),
                 })
         if anthropic_tools:
-            # Cache the tool schemas too — they're stable for the whole agent run.
-            # The breakpoint caches all tool defs preceding it in the request.
-            anthropic_tools[-1]["cache_control"] = {"type": "ephemeral"}
             payload["tools"] = anthropic_tools
+
+    # ── Prompt caching ─────────────────────────────────────────────────────
+    # 1) Decide WHAT gets a breakpoint. cache_system=None keeps the legacy
+    #    heuristic for non-UI callers: skip caching tiny one-off prefixes (no
+    #    reuse; the 4000-char gate ≈ 1k tokens — Fable 5's min cacheable size
+    #    is just 512 tokens, older models need 1k–4k); `tools` means an
+    #    agentic/multi-round call where the prefix is always reused. Tool
+    #    schemas are stable for the whole agent run, so they always get a
+    #    breakpoint when present. Worst case: tools(1) + system(1) + chat(2)
+    #    = 4 breakpoints, Anthropic's exact limit.
+    if cache_system is None:
+        should_cache_system = sys_cache_idx is not None and (bool(payload.get("tools")) or sys_cached_len > 4000)
+    else:
+        should_cache_system = bool(cache_system) and sys_cache_idx is not None
+    should_cache_chat = bool(cache_chat) and bool(payload.get("messages"))
+    should_cache_tools = bool(payload.get("tools"))
+
+    # 2) Resolve TTLs so longer durations never appear AFTER shorter ones —
+    #    request order is tools → system → messages, so promote earlier
+    #    breakpoints up to the longest TTL of anything later (Anthropic 400s
+    #    otherwise). This is also what keeps the tools breakpoint legal when
+    #    the user enables 1h for the system prompt or chat history.
+    chat_ttl = _normalize_ttl(cache_chat_ttl) if should_cache_chat else None
+    system_ttl = _max_ttl(_normalize_ttl(cache_system_ttl) if should_cache_system else None, chat_ttl)
+    tools_ttl = _max_ttl("5m" if should_cache_tools else None, system_ttl, chat_ttl)
+
+    # 3) Apply breakpoints.
+    if should_cache_system:
+        payload["system"][sys_cache_idx]["cache_control"] = _cache_block(system_ttl)
+    if should_cache_tools:
+        payload["tools"][-1]["cache_control"] = _cache_block(tools_ttl)
+    if should_cache_chat:
+        _apply_cache_control_at_depth(payload["messages"], cache_chat_depth, chat_ttl)
     return payload
 
 def _build_anthropic_headers(headers):
@@ -835,6 +976,21 @@ def _parse_anthropic_response(data: dict) -> str:
         for block in data.get("content", [])
         if isinstance(block, dict) and block.get("type") == "text"
     )
+
+
+def _raise_if_anthropic_refusal(data: dict) -> None:
+    """Raise 422 if an Anthropic response was refused by a safety classifier.
+
+    Fable 5+ returns ``stop_reason: "refusal"`` (HTTP 200) when a classifier
+    fires; any partial output must be discarded rather than returned.
+    """
+    if data.get("stop_reason") != "refusal":
+        return
+    category = (data.get("stop_details") or {}).get("category")
+    detail = "Request declined by the model's safety system"
+    if category:
+        detail += f" (category: {category})"
+    raise HTTPException(422, detail)
 
 
 def _as_content_blocks(content) -> List[Dict]:
@@ -1150,7 +1306,9 @@ def llm_call(url: str, model: str, messages: List[Dict], temperature: float = LL
              timeout: int = LLMConfig.DEFAULT_TIMEOUT, prompt_type: Optional[str] = None,
              top_p: Optional[float] = None, top_k: Optional[int] = None,
              thinking_enabled: bool = False, thinking_adaptive: bool = False,
-             thinking_effort: str = "auto") -> str:
+             thinking_effort: str = "auto",
+             cache_system: Optional[bool] = None, cache_system_ttl: str = "5m",
+             cache_chat: bool = False, cache_chat_ttl: str = "5m") -> str:
     """Synchronous LLM call with optional prompt type enhancement."""
     h = _provider_headers(_detect_provider(url))
     # Tolerate headers that arrive as a JSON string (some sessions stored them
@@ -1196,6 +1354,8 @@ def llm_call(url: str, model: str, messages: List[Dict], temperature: float = LL
             model, messages_copy, temperature, max_tokens,
             top_p=top_p, top_k=top_k, thinking_enabled=thinking_enabled,
             thinking_adaptive=thinking_adaptive, thinking_effort=thinking_effort,
+            cache_system=cache_system, cache_system_ttl=cache_system_ttl,
+            cache_chat=cache_chat, cache_chat_ttl=cache_chat_ttl,
         )
     elif provider == "ollama":
         target_url = _normalize_ollama_url(url)
@@ -1225,6 +1385,7 @@ def llm_call(url: str, model: str, messages: List[Dict], temperature: float = LL
     data = r.json()
     try:
         if provider == "anthropic":
+            _raise_if_anthropic_refusal(data)
             response = _parse_anthropic_response(data)
         elif provider == "ollama":
             response = _parse_ollama_response(data)
@@ -1233,6 +1394,8 @@ def llm_call(url: str, model: str, messages: List[Dict], temperature: float = LL
             response = msg.get("content") or msg.get("reasoning_content") or ""
         _set_cached_response(cache_key, response)
         return response
+    except HTTPException:
+        raise
     except Exception:
         raise HTTPException(502, f"Unexpected schema from {target_url}: {str(data)[:400]}")
 
@@ -1317,6 +1480,10 @@ async def llm_call_async(
     thinking_enabled: bool = False,
     thinking_adaptive: bool = False,
     thinking_effort: str = "auto",
+    cache_system: Optional[bool] = None,
+    cache_system_ttl: str = "5m",
+    cache_chat: bool = False,
+    cache_chat_ttl: str = "5m",
 ) -> str:
     """Asynchronous LLM call using httpx with connection pooling, timeout, retry logic, and performance logging."""
     provider = _detect_provider(url)
@@ -1352,6 +1519,8 @@ async def llm_call_async(
             model, messages_copy, temperature, max_tokens,
             top_p=top_p, top_k=top_k, thinking_enabled=thinking_enabled,
             thinking_adaptive=thinking_adaptive, thinking_effort=thinking_effort,
+            cache_system=cache_system, cache_system_ttl=cache_system_ttl,
+            cache_chat=cache_chat, cache_chat_ttl=cache_chat_ttl,
         )
     elif provider == "ollama":
         target_url = _normalize_ollama_url(url)
@@ -1404,6 +1573,7 @@ async def llm_call_async(
             data = r.json()
             try:
                 if provider == "anthropic":
+                    _raise_if_anthropic_refusal(data)
                     response = _parse_anthropic_response(data)
                 elif provider == "ollama":
                     response = _parse_ollama_response(data)
@@ -1412,6 +1582,8 @@ async def llm_call_async(
                     response = msg.get("content") or msg.get("reasoning_content") or ""
                 _set_cached_response(cache_key, response)
                 return response
+            except HTTPException:
+                raise
             except Exception:
                 raise HTTPException(502, f"Unexpected schema from {target_url}: {str(data)[:400]}")
         except (httpx.ConnectError, httpx.ConnectTimeout) as e:
@@ -1435,7 +1607,9 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
                      tools: Optional[List[Dict]] = None,
                      top_p: Optional[float] = None, top_k: Optional[int] = None,
                      thinking_enabled: bool = False, thinking_adaptive: bool = False,
-                     thinking_effort: str = "auto"):
+                     thinking_effort: str = "auto",
+                     cache_system: Optional[bool] = None, cache_system_ttl: str = "5m",
+                     cache_chat: bool = False, cache_chat_ttl: str = "5m"):
     """Stream LLM responses with improved error handling.
 
     Yields SSE chunks:
@@ -1472,6 +1646,8 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
             model, messages_copy, temperature, max_tokens, stream=True, tools=tools,
             top_p=top_p, top_k=top_k, thinking_enabled=thinking_enabled,
             thinking_adaptive=thinking_adaptive, thinking_effort=thinking_effort,
+            cache_system=cache_system, cache_system_ttl=cache_system_ttl,
+            cache_chat=cache_chat, cache_chat_ttl=cache_chat_ttl,
         )
     elif provider == "ollama":
         target_url = _normalize_ollama_url(url)
@@ -1580,6 +1756,11 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
         _anth_tool_blocks: Dict[int, Dict] = {}
         _anth_block_idx = -1
         _anth_block_type = ""
+        # Fable 5+ safety classifier: stop_reason "refusal" (HTTP 200). Any
+        # partial output must be discarded — flag it so message_stop emits a
+        # refusal event instead of text/tool calls.
+        _anth_refusal = False
+        _anth_refusal_category = None
         try:
             client = _get_http_client()
             async with client.stream('POST', target_url, json=payload, headers=h, timeout=stream_timeout) as r:
@@ -1642,7 +1823,20 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
                                 )
                         elif evt == "message_delta":
                             _anth_output_tokens = j.get("usage", {}).get("output_tokens", 0)
+                            _delta = j.get("delta") or {}
+                            if _delta.get("stop_reason") == "refusal":
+                                _anth_refusal = True
+                                _sd = _delta.get("stop_details") or {}
+                                _anth_refusal_category = _sd.get("category")
                         elif evt == "message_stop":
+                            if _anth_refusal:
+                                # Discard any partial output; signal the client to
+                                # replace it with a refusal notice.
+                                yield f'data: {json.dumps({"type": "refusal", "category": _anth_refusal_category})}\n\n'
+                                if _anth_input_tokens or _anth_output_tokens:
+                                    yield f'data: {json.dumps({"type": "usage", "data": {"input_tokens": _anth_input_tokens, "output_tokens": _anth_output_tokens}})}\n\n'
+                                yield "data: [DONE]\n\n"
+                                return
                             # Emit accumulated tool calls in OpenAI-compatible format
                             if _anth_tool_blocks:
                                 calls = []

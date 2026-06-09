@@ -357,6 +357,10 @@ def setup_chat_routes(
             prompt_type=preset_id,
             top_p=ctx.preset.top_p,
             top_k=ctx.preset.top_k,
+            cache_system=ctx.preset.cache_system,
+            cache_system_ttl=ctx.preset.cache_system_ttl,
+            cache_chat=ctx.preset.cache_chat,
+            cache_chat_ttl=ctx.preset.cache_chat_ttl,
         )
         _clean_reply, _clean_md = clean_thinking_for_save(reply, {"model": sess.model})
         sess.add_message(ChatMessage("assistant", _clean_reply, metadata=_clean_md))
@@ -951,6 +955,10 @@ def setup_chat_routes(
                         thinking_enabled=thinking_enabled,
                         thinking_adaptive=thinking_adaptive,
                         thinking_effort=thinking_effort,
+                        cache_system=ctx.preset.cache_system,
+                        cache_system_ttl=ctx.preset.cache_system_ttl,
+                        cache_chat=ctx.preset.cache_chat,
+                        cache_chat_ttl=ctx.preset.cache_chat_ttl,
                     )
                     if ctx.preset.stream:
                         _chat_source = stream_llm_with_fallback(
@@ -997,6 +1005,13 @@ def setup_chat_routes(
                                     _actual_model = data.get("model") or _actual_model
                                     data["requested_model"] = _requested_model
                                     yield f'data: {json.dumps(data)}\n\n'
+                                elif data.get("type") == "refusal":
+                                    # Safety classifier refused (Fable 5+). Drop any
+                                    # partial text so it's never persisted, then pass
+                                    # the notice through for the client to render.
+                                    full_response = ""
+                                    _stream_set(session, partial="")
+                                    yield chunk
                                 elif data.get("type") == "usage":
                                     last_metrics = data.get("data", {})
                                     _reported_model = last_metrics.get("model")
@@ -1122,6 +1137,13 @@ def setup_chat_routes(
                         workspace=None,
                         plan_mode=plan_mode,
                         approved_plan=approved_plan or None,
+                        thinking_enabled=thinking_enabled,
+                        thinking_adaptive=thinking_adaptive,
+                        thinking_effort=thinking_effort,
+                        cache_system=ctx.preset.cache_system,
+                        cache_system_ttl=ctx.preset.cache_system_ttl,
+                        cache_chat=ctx.preset.cache_chat,
+                        cache_chat_ttl=ctx.preset.cache_chat_ttl,
                     ):
                         if chunk.startswith("data: ") and not chunk.startswith("data: [DONE]"):
                             try:
@@ -1163,6 +1185,13 @@ def setup_chat_routes(
                                     _actual_model = data.get("model") or _actual_model
                                     data["requested_model"] = _requested_model
                                     yield f'data: {json.dumps(data)}\n\n'
+                                elif data.get("type") == "refusal":
+                                    # Safety classifier refused (Fable 5+). Drop any
+                                    # partial text so it's never persisted, then pass
+                                    # the notice through for the client to render.
+                                    full_response = ""
+                                    _stream_set(session, partial="")
+                                    yield chunk
                                 elif data.get("type") == "metrics":
                                     last_metrics = data.get("data", {})
                                     _reported_model = last_metrics.get("model")

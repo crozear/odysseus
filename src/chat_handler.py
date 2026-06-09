@@ -54,7 +54,12 @@ class ChatHandler:
 
     def validate_and_extract_preset(self, preset_id: Optional[str]) -> tuple:
         """Returns (temperature, max_tokens, preset_system_prompt, character_name,
-        top_p, top_k, stream, user_persona_prompt)."""
+        top_p, top_k, stream, user_persona_prompt, cache_opts).
+
+        cache_opts holds the Anthropic prompt-cache controls: cache_system
+        (None = legacy auto heuristic, True/False = explicit preset choice),
+        cache_chat (bool), and their TTLs as "5m"/"1h" strings.
+        """
         if preset_id and preset_id not in self.preset_manager.presets:
             raise HTTPException(400, f"Invalid preset_id: {preset_id}")
 
@@ -66,12 +71,18 @@ class ChatHandler:
         top_k = None
         stream = True
         user_persona_prompt = None
+        cache_opts = {
+            "cache_system": None,
+            "cache_system_ttl": "5m",
+            "cache_chat": False,
+            "cache_chat_ttl": "5m",
+        }
 
         if preset_id and preset_id in self.preset_manager.presets:
             preset = self.preset_manager.presets[preset_id]
             if preset.get("enabled") is False:
                 logger.info(f"Preset {preset_id} is disabled, using defaults")
-                return temperature, max_tokens, preset_system_prompt, character_name, top_p, top_k, stream, user_persona_prompt
+                return temperature, max_tokens, preset_system_prompt, character_name, top_p, top_k, stream, user_persona_prompt, cache_opts
             if preset.get("system_prompt"):
                 preset_system_prompt = preset["system_prompt"]
             character_name = preset.get("character_name", "")
@@ -103,9 +114,20 @@ class ChatHandler:
             top_p = preset.get("top_p")
             top_k = preset.get("top_k")
             stream = preset.get("stream", True)
+            # Prompt caching (Anthropic-only downstream). cache_system stays
+            # None for presets saved before the toggles existed, which keeps
+            # the legacy auto-cache heuristic; the UI always saves explicit
+            # booleans. TTL checkboxes persist as bools → "1h"/"5m" here.
+            _cs = preset.get("cache_system")
+            cache_opts = {
+                "cache_system": None if _cs is None else bool(_cs),
+                "cache_system_ttl": "1h" if preset.get("cache_system_ttl") else "5m",
+                "cache_chat": bool(preset.get("cache_chat")),
+                "cache_chat_ttl": "1h" if preset.get("cache_chat_ttl") else "5m",
+            }
 
         logger.info(f"Preset {preset_id}: temp={temperature}, max_tokens={max_tokens}")
-        return temperature, max_tokens, preset_system_prompt, character_name, top_p, top_k, stream, user_persona_prompt
+        return temperature, max_tokens, preset_system_prompt, character_name, top_p, top_k, stream, user_persona_prompt, cache_opts
 
     def enhance_message_if_needed(self, message: str) -> str:
         """CoT enhancement disabled — modern models reason natively."""

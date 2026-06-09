@@ -1648,6 +1648,27 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
                   // Feed streaming TTS with accumulated text
                   if (streamingTTS) window.aiTTSManager.streamingUpdate(roundText);
                 }
+              } else if (json.type === 'refusal') {
+                // Safety classifier refused the response (Fable 5+). The API
+                // requires discarding any partial output, so we throw away what
+                // streamed and replace it with a notice. The backend already
+                // cleared its saved copy, so nothing partial is persisted.
+                _cancelThinkingTimer();
+                _removeThinkingSpinner();
+                if (spinner && spinner.element) spinner.destroy();
+                const _cat = json.category ? ` (category: ${json.category})` : '';
+                // Markdown blockquote renders distinctly (no new CSS) and rides
+                // through every render path as the message's own content.
+                const _refusalMsg = `> **Request declined**\n>\n> The model's safety system blocked this response${_cat}.`;
+                accumulated = _refusalMsg;
+                roundText = _refusalMsg;
+                currentAccumulated = _refusalMsg;
+                if (_isBg) {
+                  const _bgRef = _backgroundStreams.get(streamSessionId);
+                  if (_bgRef) _bgRef.accumulated = accumulated;
+                  continue;
+                }
+                _renderStream();
               } else if (json.type === 'research_progress') {
                 if (_isBg) continue; // Skip DOM updates in background
                 _researchingStreamIds.add(streamSessionId);

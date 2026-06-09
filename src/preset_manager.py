@@ -150,6 +150,10 @@ Use precise language. Show causal relationships explicitly. Quantify uncertainty
         stream: bool = True,
         user_persona_name: str = "",
         user_persona_prompt: str = "",
+        cache_system: bool = False,
+        cache_system_ttl: bool = False,
+        cache_chat: bool = False,
+        cache_chat_ttl: bool = False,
     ) -> bool:
         """Update the custom preset"""
         self.presets["custom"] = {
@@ -165,6 +169,10 @@ Use precise language. Show causal relationships explicitly. Quantify uncertainty
             "inject_suffix": inject_suffix,
             "user_persona_name": user_persona_name,
             "user_persona_prompt": user_persona_prompt,
+            "cache_system": cache_system,
+            "cache_system_ttl": cache_system_ttl,
+            "cache_chat": cache_chat,
+            "cache_chat_ttl": cache_chat_ttl,
             "enabled": enabled,
         }
         return self.save(self.presets)

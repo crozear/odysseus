@@ -200,6 +200,7 @@ function _clearAiSide() {
     ...presets.custom,
     character_name: '', system_prompt: '',
     temperature: 1.0, max_tokens: 0, top_p: null, top_k: null, stream: true,
+    cache_system: false, cache_system_ttl: false, cache_chat: false, cache_chat_ttl: false,
     inject_prefix: '', inject_suffix: '',
   };
   const stillOn = _customHasUserPersona(presets.custom);
@@ -217,6 +218,7 @@ export function init(apiBase) {
   API_BASE = apiBase;
   initCharTabs();
   initEnabledToggle();
+  initCacheRows();
   initNameDropdown();
   initUserDropdown();
   initResetButton();
@@ -329,6 +331,47 @@ function initEnabledToggle() {
 }
 
 /**
+ * Prompt-cache rows (Inject tab). The 1h-TTL toggle only shows while its
+ * parent toggle is on, and resets when the parent turns off so a hidden
+ * checkbox can't silently keep a stale 1h TTL.
+ */
+function _syncCacheRow(mainId, ttlWrapId, ttlId) {
+  const main = document.getElementById(mainId);
+  const ttlWrap = document.getElementById(ttlWrapId);
+  const ttl = document.getElementById(ttlId);
+  if (!main || !ttlWrap || !ttl) return;
+  ttlWrap.hidden = !main.checked;
+  if (!main.checked && ttl.checked) ttl.checked = false;
+}
+
+function _syncCacheRows() {
+  _syncCacheRow('cache-system', 'cache-system-ttl-wrap', 'cache-system-ttl');
+  _syncCacheRow('cache-chat', 'cache-chat-ttl-wrap', 'cache-chat-ttl');
+}
+
+function _setCacheChecks(config) {
+  const ids = {
+    'cache-system': config.cache_system,
+    'cache-system-ttl': config.cache_system_ttl,
+    'cache-chat': config.cache_chat,
+    'cache-chat-ttl': config.cache_chat_ttl,
+  };
+  for (const [id, val] of Object.entries(ids)) {
+    const el = document.getElementById(id);
+    if (el) el.checked = !!val;
+  }
+  _syncCacheRows();
+}
+
+function initCacheRows() {
+  ['cache-system', 'cache-chat'].forEach(id => {
+    const main = document.getElementById(id);
+    if (main) main.addEventListener('change', _syncCacheRows);
+  });
+  _syncCacheRows();
+}
+
+/**
  * Character select dropdown — pick saved characters or "New character..."
  */
 function initNameDropdown() {
@@ -366,6 +409,7 @@ function initNameDropdown() {
       const tpReset = document.getElementById('custom-top-p'); if (tpReset) tpReset.value = 1;
       const tkReset = document.getElementById('custom-top-k'); if (tkReset) tkReset.value = 0;
       const stReset = document.getElementById('custom-stream'); if (stReset) stReset.checked = true;
+      _setCacheChecks({});
       _syncTopLabels();
       if (delBtn) delBtn.style.display = 'none';
       return;
@@ -851,6 +895,12 @@ export function openCustomPresetModal(initialTab) {
   if (topPInput) topPInput.value = (savedConfig.top_p == null) ? 1 : savedConfig.top_p;
   if (topKInput) topKInput.value = (savedConfig.top_k == null) ? 0 : savedConfig.top_k;
   if (streamInput) streamInput.checked = savedConfig.stream !== false;
+  // Prompt-cache toggles (Claude) — restore + sync the 1h-TTL row visibility.
+  const cacheSystemInput = document.getElementById('cache-system');
+  const cacheSystemTtlInput = document.getElementById('cache-system-ttl');
+  const cacheChatInput = document.getElementById('cache-chat');
+  const cacheChatTtlInput = document.getElementById('cache-chat-ttl');
+  _setCacheChecks(savedConfig);
   _syncTopLabels();
   if (promptInput) promptInput.value = savedConfig.system_prompt || '';
 
@@ -881,6 +931,10 @@ export function openCustomPresetModal(initialTab) {
     topP: topPInput ? topPInput.value : '1',
     topK: topKInput ? topKInput.value : '0',
     stream: streamInput ? streamInput.checked : true,
+    cacheSystem: cacheSystemInput ? cacheSystemInput.checked : false,
+    cacheSystemTtl: cacheSystemTtlInput ? cacheSystemTtlInput.checked : false,
+    cacheChat: cacheChatInput ? cacheChatInput.checked : false,
+    cacheChatTtl: cacheChatTtlInput ? cacheChatTtlInput.checked : false,
     userName: userNameInput ? userNameInput.value : '',
     userPrompt: userPromptInput ? userPromptInput.value : '',
   };
@@ -895,6 +949,10 @@ export function openCustomPresetModal(initialTab) {
       || (topPInput && topPInput.value !== _snapshot.topP)
       || (topKInput && topKInput.value !== _snapshot.topK)
       || (streamInput && streamInput.checked !== _snapshot.stream)
+      || (cacheSystemInput && cacheSystemInput.checked !== _snapshot.cacheSystem)
+      || (cacheSystemTtlInput && cacheSystemTtlInput.checked !== _snapshot.cacheSystemTtl)
+      || (cacheChatInput && cacheChatInput.checked !== _snapshot.cacheChat)
+      || (cacheChatTtlInput && cacheChatTtlInput.checked !== _snapshot.cacheChatTtl)
       || (userNameInput && userNameInput.value !== _snapshot.userName)
       || (userPromptInput && userPromptInput.value !== _snapshot.userPrompt);
     // The footer button starts whichever of the three things the active tab
@@ -933,8 +991,11 @@ export function openCustomPresetModal(initialTab) {
     // Reset only makes sense on the character tab (it resets the persona).
     if (resetBtn) resetBtn.style.display = (changed && activeTab === 'character') ? '' : 'none';
   }
-  [nameInput, promptInput, tempInput, tokensInput, topPInput, topKInput, streamInput, userNameInput, userPromptInput].forEach(el => {
-    if (el) el.addEventListener(el === streamInput ? 'change' : 'input', _updateStartBtn);
+  const _checkboxInputs = [streamInput, cacheSystemInput, cacheSystemTtlInput, cacheChatInput, cacheChatTtlInput];
+  [nameInput, promptInput, tempInput, tokensInput, topPInput, topKInput, streamInput,
+   cacheSystemInput, cacheSystemTtlInput, cacheChatInput, cacheChatTtlInput,
+   userNameInput, userPromptInput].forEach(el => {
+    if (el) el.addEventListener(_checkboxInputs.includes(el) ? 'change' : 'input', _updateStartBtn);
   });
   // Re-label the Start button when the user switches tabs. Rebind the fresh
   // closure each time the modal opens (removing any stale one) so the label
@@ -974,6 +1035,10 @@ export function openCustomPresetModal(initialTab) {
     _snapshot.topP = topPInput ? topPInput.value : '1';
     _snapshot.topK = topKInput ? topKInput.value : '0';
     _snapshot.stream = streamInput ? streamInput.checked : true;
+    _snapshot.cacheSystem = cacheSystemInput ? cacheSystemInput.checked : false;
+    _snapshot.cacheSystemTtl = cacheSystemTtlInput ? cacheSystemTtlInput.checked : false;
+    _snapshot.cacheChat = cacheChatInput ? cacheChatInput.checked : false;
+    _snapshot.cacheChatTtl = cacheChatTtlInput ? cacheChatTtlInput.checked : false;
     _snapshot.userName = userNameInput ? userNameInput.value : '';
     _snapshot.userPrompt = userPromptInput ? userPromptInput.value : '';
     _updateStartBtn();
@@ -1077,6 +1142,11 @@ export async function saveCustomPreset(showToast, showError) {
   const top_k = _readTopK();
   const _streamInput = document.getElementById('custom-stream');
   const stream = _streamInput ? _streamInput.checked : true;
+  const _readChecked = (id) => { const el = document.getElementById(id); return el ? el.checked : false; };
+  const cache_system = _readChecked('cache-system');
+  const cache_system_ttl = _readChecked('cache-system-ttl');
+  const cache_chat = _readChecked('cache-chat');
+  const cache_chat_ttl = _readChecked('cache-chat-ttl');
 
   const enabled = true; // always enabled when saving — deactivation happens via X/Reset
 
@@ -1091,6 +1161,10 @@ export async function saveCustomPreset(showToast, showError) {
     top_p: top_p,
     top_k: top_k,
     stream: stream,
+    cache_system: cache_system,
+    cache_system_ttl: cache_system_ttl,
+    cache_chat: cache_chat,
+    cache_chat_ttl: cache_chat_ttl,
     system_prompt: system_prompt,
     inject_prefix: _prefixInput ? _prefixInput.value : '',
     inject_suffix: _suffixInput ? _suffixInput.value : '',
@@ -1116,7 +1190,8 @@ export async function saveCustomPreset(showToast, showError) {
       // "Inject" tab's plain-chat case. Without the tuning check, "just set
       // temp + max tokens" would silently do nothing.
       const _hasTuning = (config.temperature !== 1.0) || (config.max_tokens !== 0)
-        || (config.top_p != null) || (config.top_k != null) || (config.stream === false);
+        || (config.top_p != null) || (config.top_k != null) || (config.stream === false)
+        || config.cache_system || config.cache_chat;
       const _hasInject = !!(config.inject_prefix || config.inject_suffix);
       const _hasUserPersona = !!(user_persona_name || user_persona_prompt);
       const _hasContent = !!(system_prompt || name || _hasTuning || _hasInject || _hasUserPersona);

@@ -57,7 +57,14 @@ function _currentModel() {
  */
 export function getThinkingParams() {
   const caps = getThinkingCaps(_currentModel());
-  if (!caps || !state.enabled) return { enabled: false, adaptive: false, effort: 'auto' };
+  if (!caps) return { enabled: false, adaptive: false, effort: 'auto' };
+  // always_on models (Fable 5+) think regardless of the toggle — the backend
+  // never sends a `thinking` param, but still honours effort via output_config.
+  if (caps.thinking === 'always_on') {
+    const effort = (caps.effort || []).includes(state.effort) ? state.effort : 'auto';
+    return { enabled: true, adaptive: true, effort };
+  }
+  if (!state.enabled) return { enabled: false, adaptive: false, effort: 'auto' };
   const effort = (caps.effort || []).includes(state.effort) ? state.effort : 'auto';
   let adaptive;
   if      (caps.thinking === 'adaptive')  adaptive = true;
@@ -81,12 +88,15 @@ function _syncButtonState(caps) {
   wrap.style.display = '';
 
   if (!btn) return;
-  const on = state.enabled;
+  // always_on models can't disable thinking — keep the button lit.
+  const on = caps.thinking === 'always_on' ? true : state.enabled;
   btn.classList.toggle('active', on);
   if (dot) dot.style.display = on ? '' : 'none';
   if (on) {
     const eff = (caps.effort || []).includes(state.effort) ? state.effort : 'auto';
-    btn.title = `Thinking: ${EFFORT_LABELS[eff] || eff}`;
+    btn.title = caps.thinking === 'always_on'
+      ? `Thinking always on — effort: ${EFFORT_LABELS[eff] || eff}`
+      : `Thinking: ${EFFORT_LABELS[eff] || eff}`;
   } else {
     btn.title = 'Thinking';
   }
@@ -138,24 +148,42 @@ function _closeMenu() {
 function _buildMenu(menu, caps) {
   menu.innerHTML = '';
 
-  // ── Enable / disable toggle ──────────────────────────────────────────────
-  const enableItem = document.createElement('div');
-  enableItem.className = 'thinking-menu-item' + (state.enabled ? ' active-red' : '');
-  enableItem.innerHTML =
-    `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.5.4.8 1 .9 1.6l.1.7h6l.1-.7c.1-.6.4-1.2.9-1.6A7 7 0 0 0 12 2z"/></svg>
-    <span>${state.enabled ? 'Thinking on' : 'Thinking off'}</span>
-    <label class="thinking-item-switch" title="Enable thinking">
-      <input type="checkbox" id="thinking-enabled-cb"${state.enabled ? ' checked' : ''}>
-      <span class="thinking-item-switch-track"></span>
-    </label>`;
-  menu.appendChild(enableItem);
+  const alwaysOn = caps.thinking === 'always_on';
 
-  // ── Model-mode note for adaptive-only models ─────────────────────────────
-  if (caps.thinking === 'adaptive') {
+  // ── Enable / disable toggle ──────────────────────────────────────────────
+  // always_on models (Fable 5+) can't turn thinking off, so show a locked-on
+  // header row instead of a switch.
+  let enableItem = null;
+  if (alwaysOn) {
+    const header = document.createElement('div');
+    header.className = 'thinking-menu-item active-red';
+    header.innerHTML =
+      `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.5.4.8 1 .9 1.6l.1.7h6l.1-.7c.1-.6.4-1.2.9-1.6A7 7 0 0 0 12 2z"/></svg>
+      <span>Thinking always on</span>`;
+    menu.appendChild(header);
     const note = document.createElement('div');
     note.className = 'thinking-menu-note';
-    note.textContent = 'Adaptive thinking — effort sets how hard the model works.';
+    note.textContent = 'This model always thinks — effort sets how hard it works.';
     menu.appendChild(note);
+  } else {
+    enableItem = document.createElement('div');
+    enableItem.className = 'thinking-menu-item' + (state.enabled ? ' active-red' : '');
+    enableItem.innerHTML =
+      `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.5.4.8 1 .9 1.6l.1.7h6l.1-.7c.1-.6.4-1.2.9-1.6A7 7 0 0 0 12 2z"/></svg>
+      <span>${state.enabled ? 'Thinking on' : 'Thinking off'}</span>
+      <label class="thinking-item-switch" title="Enable thinking">
+        <input type="checkbox" id="thinking-enabled-cb"${state.enabled ? ' checked' : ''}>
+        <span class="thinking-item-switch-track"></span>
+      </label>`;
+    menu.appendChild(enableItem);
+
+    // ── Model-mode note for adaptive-only models ───────────────────────────
+    if (caps.thinking === 'adaptive') {
+      const note = document.createElement('div');
+      note.className = 'thinking-menu-note';
+      note.textContent = 'Adaptive thinking — effort sets how hard the model works.';
+      menu.appendChild(note);
+    }
   }
 
   // ── Effort section ───────────────────────────────────────────────────────

@@ -91,6 +91,22 @@ class PresetUpdateRequest(BaseModel):
         True,
         description="Whether responses stream token-by-token"
     )
+    cache_system: bool = Field(
+        False,
+        description="Anthropic prompt caching: add a cache breakpoint after the system prompt"
+    )
+    cache_system_ttl: bool = Field(
+        False,
+        description="Extend the system-prompt cache TTL from 5 minutes to 1 hour"
+    )
+    cache_chat: bool = Field(
+        False,
+        description="Anthropic prompt caching: rolling cache breakpoints inside the chat history"
+    )
+    cache_chat_ttl: bool = Field(
+        False,
+        description="Extend the chat-history cache TTL from 5 minutes to 1 hour"
+    )
     system_prompt: str = Field(
         "",
         max_length=32768,
