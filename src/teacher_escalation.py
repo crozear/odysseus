@@ -209,12 +209,13 @@ portable across users / hosts.
 """
 
 
-async def _call_teacher(teacher_model_spec: str, prompt: str) -> Optional[str]:
+async def _call_teacher(teacher_model_spec: str, prompt: str,
+                        owner: Optional[str] = None) -> Optional[str]:
     """Call the configured teacher endpoint with the escalation prompt."""
     from src.llm_core import llm_call_async
     from src.ai_interaction import _resolve_model, _TEACHER_SYSTEM_PROMPT
     try:
-        url, model, headers = _resolve_model(teacher_model_spec)
+        url, model, headers = _resolve_model(teacher_model_spec, owner=owner)
     except Exception as e:
         logger.warning(f"teacher endpoint not resolvable ({teacher_model_spec!r}): {e}")
         return None
@@ -363,7 +364,7 @@ async def escalate_and_learn(
         failure_reason=failure_reason or "(failure reason not captured)",
         trace=_format_trace(tool_results, agent_reply),
     )
-    response = await _call_teacher(teacher_spec, prompt)
+    response = await _call_teacher(teacher_spec, prompt, owner=owner)
     if not response:
         return None
 
@@ -498,7 +499,7 @@ async def run_teacher_inline(
     # Resolve teacher endpoint
     try:
         from src.ai_interaction import _resolve_model
-        teacher_url, teacher_model, teacher_headers = _resolve_model(teacher_spec)
+        teacher_url, teacher_model, teacher_headers = _resolve_model(teacher_spec, owner=owner)
     except Exception as e:
         logger.warning(f"teacher endpoint not resolvable ({teacher_spec!r}): {e}")
         yield (
@@ -591,7 +592,7 @@ async def run_teacher_inline(
         failure_reason=reason or "",
         trace=_format_trace(captured_tool_events, teacher_text),
     )
-    skill_response = await _call_teacher(teacher_spec, prompt)
+    skill_response = await _call_teacher(teacher_spec, prompt, owner=owner)
     if skill_response and "NO_SKILL" in skill_response and not _extract_skill_json(skill_response):
         logger.info("teacher declined to write a skill (NO_SKILL)")
         yield (

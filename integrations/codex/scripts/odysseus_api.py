@@ -15,6 +15,13 @@ def _usage() -> int:
     print("  odysseus_api.py capabilities", file=sys.stderr)
     print("  odysseus_api.py todos list", file=sys.stderr)
     print("  odysseus_api.py todos add TITLE", file=sys.stderr)
+    print("  odysseus_api.py emails list [limit]", file=sys.stderr)
+    print("  odysseus_api.py emails read UID", file=sys.stderr)
+    print("  odysseus_api.py emails draft-doc JSON_PAYLOAD", file=sys.stderr)
+    print("  odysseus_api.py documents list [limit]", file=sys.stderr)
+    print("  odysseus_api.py documents read DOC_ID", file=sys.stderr)
+    print("  odysseus_api.py documents create JSON_PAYLOAD", file=sys.stderr)
+    print("  odysseus_api.py documents delete DOC_ID", file=sys.stderr)
     print("  odysseus_api.py cookbook tasks", file=sys.stderr)
     print("  odysseus_api.py cookbook servers", file=sys.stderr)
     print("  odysseus_api.py cookbook cached [HOST]", file=sys.stderr)
@@ -62,6 +69,48 @@ def main() -> int:
         elif action == "add" and len(sys.argv) >= 4:
             method = "POST"
             body = json.dumps({"action": "add", "title": " ".join(sys.argv[3:])})
+        else:
+            return _usage()
+    elif command == "emails":
+        if len(sys.argv) < 3:
+            return _usage()
+        action = sys.argv[2].lower()
+        if action == "list":
+            method = "GET"
+            limit = sys.argv[3] if len(sys.argv) >= 4 else "10"
+            path = f"/api/codex/emails?folder=INBOX&limit={limit}&offset=0&filter=all"
+            body = None
+        elif action == "read" and len(sys.argv) >= 4:
+            method = "GET"
+            path = f"/api/codex/emails/{sys.argv[3]}"
+            body = None
+        elif action in ("draft-doc", "draft_document") and len(sys.argv) >= 4:
+            method = "POST"
+            path = "/api/codex/emails/draft-document"
+            body = " ".join(sys.argv[3:])
+        else:
+            return _usage()
+    elif command in ("documents", "docs"):
+        if len(sys.argv) < 3:
+            return _usage()
+        action = sys.argv[2].lower()
+        if action == "list":
+            method = "GET"
+            limit = sys.argv[3] if len(sys.argv) >= 4 else "50"
+            path = f"/api/codex/documents?limit={limit}"
+            body = None
+        elif action == "read" and len(sys.argv) >= 4:
+            method = "GET"
+            path = f"/api/codex/documents/{sys.argv[3]}"
+            body = None
+        elif action == "create" and len(sys.argv) >= 4:
+            method = "POST"
+            path = "/api/codex/documents"
+            body = " ".join(sys.argv[3:])
+        elif action == "delete" and len(sys.argv) >= 4:
+            method = "DELETE"
+            path = f"/api/codex/documents/{sys.argv[3]}"
+            body = None
         else:
             return _usage()
     elif command == "cookbook":

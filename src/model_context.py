@@ -88,16 +88,17 @@ REQUEST_TIMEOUT = 5
 # Substring matching — use the shortest unique prefix so variants get caught.
 KNOWN_CONTEXT_WINDOWS = {
     # --- Anthropic ---
-    'claude-opus-4-8': 1000000,
-    'claude-opus-4-7': 1000000,
-    'claude-opus-4-6': 1000000,
-    'claude-opus-4-5': 200000,
-    'claude-opus-4-1': 200000,
-    'claude-opus-4': 200000,
-    'claude-sonnet-4-6': 1000000,
     'claude-sonnet-4-5': 200000,
+    'claude-sonnet-4-6': 200000,
     'claude-sonnet-4': 200000,
-    'claude-haiku-4-5': 200000,
+    'claude-opus-4': 200000,
+    'claude-haiku-4': 200000,
+    'claude-haiku-3-5': 200000,
+    'claude-3-5-sonnet': 200000,
+    'claude-3-5-haiku': 200000,
+    'claude-3-opus': 200000,
+    'claude-3-sonnet': 200000,
+    'claude-3-haiku': 200000,
 
     # --- OpenAI ---
     'gpt-5': 400000,
@@ -286,7 +287,19 @@ def _query_context_length(endpoint_url: str, model: str) -> int:
         except Exception:
             pass
 
-    models_url = endpoint_url.replace("/chat/completions", "/models")
+    # GitHub Copilot's /models requires auth + X-GitHub-Api-Version headers that
+    # aren't available here; an unauthenticated probe just 400s. All Copilot
+    # picker models are major API models covered by the known-context table, so
+    # rely on that instead of a doomed network call.
+    from src.copilot import is_copilot_base
+    if is_copilot_base(endpoint_url):
+        if known:
+            logger.info(f"Using known context window for {model}: {known}")
+        return known or DEFAULT_CONTEXT
+
+    from src.endpoint_resolver import build_models_url
+
+    models_url = build_models_url(endpoint_url)
     try:
         r = httpx.get(models_url, timeout=REQUEST_TIMEOUT)
         if r.is_success:
@@ -346,7 +359,11 @@ def estimate_tokens(messages: List[Dict]) -> int:
 
     Uses chars * 0.3 which is closer to real BPE tokenizer output
     than the commonly-cited chars/4 (which underestimates by ~20-30%).
-    Also adds ~4 tokens per message for role/formatting overhead.
+    Also adds ~4 tokens per message for role/formatting overhead, and counts
+    assistant tool_calls (name + arguments) — a tool-only turn carries
+    content=None with the real payload in tool_calls, so ignoring them made the
+    estimate (and the compaction/trim gates that rely on it) blind to large
+    tool arguments.
     """
     total = 0
     for msg in messages:
@@ -358,4 +375,20 @@ def estimate_tokens(messages: List[Dict]) -> int:
             for item in content:
                 if isinstance(item, dict) and item.get("type") == "text":
                     total += int(len(item.get("text", "")) * 0.3)
+        # Tool calls carry real payload too: a tool-only assistant turn is stored
+        # with content=None and the actual args (e.g. a create_document body) in
+        # tool_calls[].function.arguments. Ignoring them made large tool arguments
+        # read as ~0 tokens, so the compaction/trim gates missed genuine overflow.
+        tool_calls = msg.get("tool_calls")
+        if isinstance(tool_calls, list):
+            for tc in tool_calls:
+                if not isinstance(tc, dict):
+                    continue
+                fn = tc.get("function") if isinstance(tc.get("function"), dict) else tc
+                name = fn.get("name", "") or ""
+                args = fn.get("arguments", "") or ""
+                if not isinstance(args, str):
+                    args = str(args)  # some shapes store arguments as a dict
+                total += 4  # per tool-call overhead (id, type, wrapper)
+                total += int((len(str(name)) + len(args)) * 0.3)
     return total

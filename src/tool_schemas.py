@@ -177,7 +177,7 @@ FUNCTION_TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "create_document",
-            "description": "Create a new document in the editor panel. Use this when the user asks to write, create, build, or generate code, scripts, programs, games, apps, or any substantial content (>15 lines) AND there is no already-open document draft that the request refers to.",
+            "description": "Create a new document in the editor panel. Use this when the user asks to write, create, build, or generate code, scripts, programs, games, apps, or any substantial content (>15 lines) AND there is no already-open document/email draft that the request refers to. If an email compose draft is open, edit that draft instead of creating another document. NEVER put large code blocks directly in chat — use this tool instead.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -258,7 +258,7 @@ FUNCTION_TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "search_chats",
-            "description": "Search the user's past chat conversations by keyword. Use when the user asks about previous chats, past conversations, or wants to find a discussion they had before. Returns matching sessions with clickable links.",
+            "description": "Search the user's past session transcripts by keyword. Use when the user asks about previous chats, past conversations, or when direct transcript evidence is better than persistent memory. Returns matching sessions with clickable links and nearby context.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -406,14 +406,17 @@ FUNCTION_TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "ui_control",
-            "description": "Control the user interface. Actions: toggle (turn tools on/off), open_panel (open a modal: documents/library, gallery, sessions, notes, memories/brain, skills, settings, cookbook), set_mode, switch_model, set_theme (presets: dark, light, midnight, paper, nord, monokai, gruvbox, dracula, cyberpunk, retrowave, forest, ocean, ume, copper, terminal, vaporwave, lavender, gpt, coffee, claude), create_theme (CREATE any custom theme with a name + colors object — pick distinctive, evocative hex colors that match the requested aesthetic, NOT generic defaults. The theme auto-applies after creation). When a user asks for ANY theme not in the preset list, ALWAYS use create_theme.",
+            "description": "Control the user interface. Actions: toggle (turn tools on/off), open_panel (open a modal: documents/library, gallery, email, sessions, notes, memories/brain, skills, settings, cookbook), open_email_reply (open an email reply draft document; does NOT send), set_mode, switch_model, set_theme (built-in presets: dark, light, midnight, paper, cyberpunk, retrowave, forest, ocean, ume, copper, terminal, organs, lavender, gpt, claude, cute), create_theme (CREATE any custom theme with a name + colors object — pick distinctive, evocative hex colors that match the requested aesthetic, NOT generic defaults. The theme auto-applies after creation). When a user asks for ANY theme not in the built-in preset list, ALWAYS use create_theme.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "action": {"type": "string", "enum": ["toggle", "open_panel", "set_mode", "switch_model", "set_theme", "create_theme", "get_toggles"],
+                    "action": {"type": "string", "enum": ["toggle", "open_panel", "open_email_reply", "set_mode", "switch_model", "set_theme", "create_theme", "get_toggles"],
                                "description": "The UI action. Use set_theme for presets, create_theme to build a custom theme with any hex colors"},
-                    "name": {"type": "string", "description": "For toggle: web, bash, thinking, research, incognito, document_editor (aliases: shell, search, deepresearch, documents). For open_panel: documents, gallery, sessions, notes, brain/memories, skills, settings, cookbook. For set_theme: a preset theme name. For create_theme: the custom theme name."},
-                    "value": {"type": "string", "description": "Value: on/off for toggle, agent/chat for set_mode, model name for switch_model, theme name for set_theme"},
+                    "name": {"type": "string", "description": "For toggle: web, bash, research, incognito, document_editor (aliases: shell, search, deepresearch, documents). For open_panel: documents, gallery, email, sessions, notes, brain/memories, skills, settings, cookbook. For open_email_reply: email UID. For set_theme: a preset theme name. For create_theme: the custom theme name."},
+                    "value": {"type": "string", "description": "Value: on/off for toggle, agent/chat for set_mode, model name for switch_model, theme name for set_theme, or folder for open_email_reply"},
+                    "uid": {"type": "string", "description": "Email UID for open_email_reply"},
+                    "folder": {"type": "string", "description": "Email folder for open_email_reply (default INBOX)"},
+                    "mode": {"type": "string", "description": "Reply draft mode for open_email_reply: reply, reply-all, or ai-reply"},
                     "colors": {"type": "object", "description": "For create_theme: the theme colors",
                                "properties": {
                                    "bg": {"type": "string", "description": "Background color (hex, e.g. #1a1a2e)"},
@@ -439,6 +442,150 @@ FUNCTION_TOOL_SCHEMAS = [
                                    "accentError": {"type": "string", "description": "Error/danger color (hex, optional)"}
                                },
                                "required": ["bg", "fg", "panel", "border", "accent"]}
+                },
+                "required": ["action"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "ask_user",
+            "description": "Ask the user a multiple-choice question to get a decision or clarification when the task is genuinely ambiguous and the answer changes what you do next (e.g. pick between approaches, confirm an assumption, choose a target). The user sees clickable option buttons; calling this ENDS your turn and their selection arrives as your next message. Prefer sensible defaults over asking — only ask when you truly cannot proceed well without the user's input. Do NOT use it to confirm irreversible/destructive actions that have a dedicated confirmation flow.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "question": {"type": "string", "description": "The question to ask. Be specific and self-contained."},
+                    "options": {
+                        "type": "array",
+                        "description": "2-6 mutually exclusive choices. Each is an object with a short `label` and an optional `description` explaining the trade-off.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "label": {"type": "string", "description": "Concise choice text the user clicks (1-5 words)."},
+                                "description": {"type": "string", "description": "Optional one-line explanation of this choice."}
+                            },
+                            "required": ["label"]
+                        }
+                    },
+                    "multi": {"type": "boolean", "description": "Set true to let the user select multiple options instead of one. Default false."}
+                },
+                "required": ["question", "options"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_plan",
+            "description": "Write back to the ACTIVE PLAN: mark steps done or revise them. Use this while executing an approved plan — after you finish a step, call update_plan with the full checklist and that step marked `- [x]`; when the user asks to change the plan, call it with the revised checklist. The user's docked plan window updates live. Pass the COMPLETE checklist every time (not a diff). No effect if there is no active plan.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "plan": {"type": "string", "description": "The full updated plan as a GitHub-style markdown checklist — one step per line, `- [ ]` for pending and `- [x]` for done. Always send the whole list."}
+                },
+                "required": ["plan"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "manage_tasks",
+            "description": "Manage scheduled/automated tasks: list, create, edit, delete, pause, resume, or run tasks. Use this for ANY recurring/scheduled request ('every morning…', 'each day at 7:30', 'daily summarize…') — create a task rather than doing it once. Task types: llm (AI runs a prompt), research (runs the deep-research pipeline on a question), or action (built-in automation). Triggers can be time-based or event-based.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string", "enum": ["list", "create", "edit", "delete", "pause", "resume", "run"],
+                               "description": "The action to perform"},
+                    "task_id": {"type": "string", "description": "Task ID (for edit/delete/pause/resume/run)"},
+                    "name": {"type": "string", "description": "Task name"},
+                    "prompt": {"type": "string", "description": "The instruction (for task_type=llm) or the research question (for task_type=research). Required for both."},
+                    "task_type": {"type": "string", "enum": ["llm", "research", "action"],
+                                  "description": "llm = AI runs your prompt; research = runs the deep-research pipeline on the prompt as a question; action = direct built-in function"},
+                    "action_name": {"type": "string", "enum": [
+                        "tidy_sessions", "tidy_documents", "consolidate_memory", "tidy_research",
+                        "summarize_emails", "draft_email_replies", "extract_email_events",
+                        "classify_events", "learn_sender_signatures",
+                        "test_skills", "audit_skills", "check_email_urgency"
+                    ],
+                                    "description": "Built-in action (for task_type=action)"},
+                    "trigger_type": {"type": "string", "enum": ["schedule", "event"],
+                                     "description": "schedule = time-based, event = count-based"},
+                    "schedule": {"type": "string", "enum": ["once", "daily", "weekly", "monthly"],
+                                 "description": "Schedule frequency (for trigger_type=schedule)"},
+                    "scheduled_time": {"type": "string", "description": "HH:MM in UTC (for schedule triggers). Convert the user's stated local time using the UTC offset given in the 'Current date and time' context."},
+                    "scheduled_day": {"type": "integer", "description": "Day of week 0=Mon (weekly) or day of month (monthly)"},
+                    "trigger_event": {"type": "string", "enum": ["session_created", "message_sent", "document_created", "memory_added", "research_completed", "email_received", "skill_added"],
+                                      "description": "Event name (for trigger_type=event)"},
+                    "trigger_count": {"type": "integer", "description": "Fire every N events (for trigger_type=event)"},
+                    "output_target": {"type": "string", "description": "Where results go. Defaults to 'session' (results land in a dedicated chat session the user reads) — this is the right choice for 'summarize for me' / 'send to me'. Do NOT go hunting for the user's email address; only use an email MCP tool name here if the user explicitly asked to be emailed AND an address is already known."}
+                },
+                "required": ["action"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "manage_calendar",
+            "description": "Manage calendar events: list events in a date range, create, update, delete. Each event can carry a tag/category (event_type) and importance level. Resolve relative dates like today/tomorrow against the 'Current date and time' system context, then pass ISO 8601 datetimes in the user's local wall time; for all-day events set all_day=true and pass YYYY-MM-DD. For event reminders/alarms, pass reminder_minutes; the tool creates the Odysseus note reminder, so do not also call manage_notes for the same reminder.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string",
+                               "enum": ["list_events", "create_event", "update_event", "delete_event", "list_calendars"],
+                               "description": "Action to perform"},
+                    "summary": {"type": "string", "description": "Event title (for create/update)"},
+                    "dtstart": {"type": "string", "description": "Start ISO datetime, or YYYY-MM-DD if all_day"},
+                    "dtend": {"type": "string", "description": "End ISO datetime; defaults to +1h (or +1 day for all_day)"},
+                    "all_day": {"type": "boolean", "description": "Whether this is an all-day event"},
+                    "description": {"type": "string", "description": "Event description / notes"},
+                    "location": {"type": "string", "description": "Event location"},
+                    "uid": {"type": "string", "description": "Event UID (for update/delete)"},
+                    "calendar_href": {"type": "string", "description": "Specific calendar URL (optional; defaults to first calendar)"},
+                    "calendar": {"type": "string", "description": "Filter list_events by calendar name or href"},
+                    "start": {"type": "string", "description": "list_events range start (ISO datetime); defaults to today. Prefer start; backend also accepts start_date, range_start, from, dtstart, since."},
+                    "end": {"type": "string", "description": "list_events range end (ISO datetime); defaults to +14 days. Prefer end; backend also accepts end_date, range_end, to, dtend, until."},
+                    "event_type": {"type": "string", "description": "Tag / category for the event. Common values: work, personal, health, travel, meal, social, admin, other. Aliases accepted: tag, category, type."},
+                    "importance": {"type": "string", "enum": ["low", "normal", "high", "critical"], "description": "Priority level (defaults to 'normal')"},
+                    "reminder_minutes": {"type": "integer", "description": "For create_event: create an Odysseus reminder this many minutes before the event, e.g. 5 for 'reminder 5 min before'."},
+                    "rrule": {"type": "string", "description": "Recurrence rule in iCalendar RRULE format, e.g. 'FREQ=WEEKLY;BYDAY=MO' for weekly on Monday. Use with create_event or update_event."}
+                },
+                "required": ["action"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "manage_notes",
+            "description": "Manage notes and checklists (Google Keep-style): list, add, update, delete, toggle_item. IMPORTANT: For to-do lists / checklists, set note_type='checklist' and pass the items as the `checklist_items` array — do NOT serialize them into `content` as plain text. For freeform notes, use note_type='note' and put the body in `content`. `due_date` accepts natural language like 'tomorrow at 9am' (parsed in the user's timezone) and fires a notification — do not also create a calendar event for the same reminder.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string",
+                               "enum": ["list", "add", "update", "delete", "toggle_item"],
+                               "description": "The action to perform"},
+                    "id": {"type": "string", "description": "Note id (for update/delete/toggle_item); 8-char prefix is fine"},
+                    "title": {"type": "string", "description": "Note title (for add/update)"},
+                    "content": {"type": "string", "description": "Freeform body text. Use this for note_type='note'. Do NOT use this for checklists — pass `checklist_items` instead."},
+                    "note_type": {"type": "string", "enum": ["note", "checklist"],
+                                  "description": "'note' = freeform text in `content`. 'checklist' = structured to-do items in `checklist_items`. Defaults to 'checklist' if checklist_items is supplied, else 'note'."},
+                    "checklist_items": {"type": "array",
+                                        "items": {"type": "object",
+                                                  "properties": {
+                                                      "text": {"type": "string", "description": "The to-do item text"},
+                                                      "done": {"type": "boolean", "description": "Whether the item is checked off"}
+                                                  },
+                                                  "required": ["text"]},
+                                        "description": "Checklist items for note_type='checklist'. Each item is {text, done}. REQUIRED for checklists — leaving this empty produces a blank note."},
+                    "color": {"type": "string", "description": "Optional color label (e.g. 'yellow', 'blue', 'green')"},
+                    "label": {"type": "string", "description": "Optional category label (also used as a list filter)"},
+                    "pinned": {"type": "boolean", "description": "Pin the note to the top"},
+                    "archived": {"type": "boolean", "description": "For update: archive/unarchive. For list: show archived notes when true."},
+                    "due_date": {"type": "string", "description": "Reminder time. Accepts natural language ('tomorrow at 9am', '11pm today') or ISO 8601. Fires a notification at that time."},
+                    "index": {"type": "integer", "description": "Checklist item index (for toggle_item, 0-based)"}
                 },
                 "required": ["action"]
             }
@@ -498,7 +645,7 @@ FUNCTION_TOOL_SCHEMAS = [
                     "name": {"type": "string", "description": "Slug/name of the skill. Required for add/view/view_ref/edit/patch/publish/delete. For add, choose the exact kebab-case name the user should see and report only the returned name."},
                     "path": {"type": "string", "description": "Sub-path under the skill directory for view_ref (e.g. 'references/example.md')."},
                     "description": {"type": "string", "description": "One-line summary surfaced in the skills index (for add)."},
-                    "category": {"type": "string", "description": "Organizational grouping like 'dev', 'system' (for add)."},
+                    "category": {"type": "string", "description": "Organizational grouping like 'dev', 'email', 'system' (for add)."},
                     "when_to_use": {"type": "string", "description": "Trigger conditions in plain English (for add)."},
                     "procedure": {"type": "array", "items": {"type": "string"}, "description": "Numbered steps (for add)."},
                     "pitfalls": {"type": "array", "items": {"type": "string"}, "description": "Known failure modes + recovery (for add)."},
@@ -612,14 +759,14 @@ FUNCTION_TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "manage_settings",
-            "description": "Manage user preferences and settings. Use `disable_tool`/`enable_tool`/`list_tools` to turn individual tools on or off globally (e.g. shell, thinking, search, browser, documents, memory, skills, images, tasks, notes). Use list/get/set/delete for free-form preferences.",
+            "description": "Manage user preferences and settings. Use `disable_tool`/`enable_tool`/`list_tools` to turn individual tools on or off globally (e.g. shell, search, browser, documents, memory, skills, images, tasks, notes, calendar, email). Use list/get/set/delete for free-form preferences.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "action": {"type": "string", "enum": ["list", "get", "set", "delete", "disable_tool", "enable_tool", "list_tools"]},
                     "key": {"type": "string", "description": "Setting key (for get/set/delete)"},
                     "value": {"description": "Setting value (for set) — can be string, number, boolean, or object"},
-                    "tool": {"type": "string", "description": "Tool name to disable/enable (for disable_tool/enable_tool). Accepts aliases: shell, thinking, search, browser, documents, memory, skills, images, tasks, notes — or a raw tool name like 'bash' or 'web_search'."}
+                    "tool": {"type": "string", "description": "Tool name to disable/enable (for disable_tool/enable_tool). Accepts aliases: shell, search, browser, documents, memory, skills, images, tasks, notes, calendar, email — or a raw tool name like 'bash' or 'web_search'."}
                 },
                 "required": ["action"]
             }
@@ -803,12 +950,12 @@ FUNCTION_TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "app_api",
-            "description": "Generic loopback to ANY internal Odysseus endpoint. Use this when there's no named tool for what the user wants. Hits the same routes the UI buttons hit (cookbook, gallery, library/documents, memory, notes, tasks, settings, themes, research, compare, etc.). action='endpoints' returns the OpenAPI surface (use `filter` to narrow). action='call' (default) takes method+path+body. Auth/user/admin paths are blocked for safety.",
+            "description": "Generic loopback to allowed internal Odysseus endpoints. Use this when there's no named tool for what the user wants. Hits the same routes the UI buttons hit (cookbook, gallery, library/documents, memory, notes, calendar, tasks, settings, themes, research, compare, etc.). action='endpoints' returns the OpenAPI surface (use `filter` to narrow). action='call' (default) takes method+path+body. Sensitive auth/user/admin/shell paths and host-control Cookbook mutation routes are blocked for safety. Do not use for shell commands; use named command tooling instead. Do not use for package installs, engine rebuilds, PID signalling, or email account discovery; use list_email_accounts for email accounts because /api/email/accounts is owner-filtered in tool context.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "action": {"type": "string", "enum": ["call", "endpoints"], "description": "'call' to hit an endpoint, 'endpoints' to list what's available"},
-                    "path": {"type": "string", "description": "Endpoint path starting with /api/ (e.g. '/api/cookbook/gpus', '/api/gallery/list')"},
+                    "path": {"type": "string", "description": "Endpoint path starting with /api/ (e.g. '/api/cookbook/gpus', '/api/gallery/list', '/api/calendar/events')"},
                     "method": {"type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"], "description": "HTTP method (default GET)"},
                     "body": {"type": "object", "description": "JSON request body for POST/PUT/PATCH"},
                     "query": {"type": "object", "description": "Querystring params as a key-value object"},
@@ -849,6 +996,188 @@ FUNCTION_TOOL_SCHEMAS = [
             }
         }
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "resolve_contact",
+            "description": "Look up a contact's email address by name. Searches CardDAV address book and sent email history. Use when the user says 'message [name]' or 'email [name]' without an email address.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Person's name to search for"},
+                },
+                "required": ["name"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "manage_contact",
+            "description": "Create, update, delete, or list the user's CardDAV contacts. Use to save a new contact ('save Jonathan's email jon@x.com'), update an existing one ('change Maria's number'), or remove one. For update/delete you need the contact's uid — call action='list' first to find it. Writes go through the same dedupe + validation as the Contacts UI.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string", "enum": ["list", "add", "update", "delete"],
+                               "description": "list = show all contacts (with uids); add = create; update = edit by uid; delete = remove by uid."},
+                    "uid": {"type": "string", "description": "Contact UID (required for update/delete; get it from action=list)."},
+                    "name": {"type": "string", "description": "Contact's display name (for add/update)."},
+                    "email": {"type": "string", "description": "Single email address (convenience for add, or the primary email for update)."},
+                    "emails": {"type": "array", "items": {"type": "string"}, "description": "Full list of email addresses (for update; first is primary)."},
+                    "phones": {"type": "array", "items": {"type": "string"}, "description": "Full list of phone numbers (for update)."},
+                },
+                "required": ["action"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_email_accounts",
+            "description": "List configured email accounts. Use this before checking mail when the user names a mailbox/account such as Gmail, work, or a custom domain, then pass the returned account name/email/id to the other email tools.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "send_email",
+            "description": "Send a new email. Use resolve_contact first if you only have a name and need to find the email address. If multiple accounts exist, pass account from list_email_accounts.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "to": {"type": "string", "description": "Recipient email address"},
+                    "subject": {"type": "string", "description": "Email subject line"},
+                    "body": {"type": "string", "description": "Email body text"},
+                    "account": {"type": "string", "description": "Optional account name/email/id from list_email_accounts, e.g. Gmail or user@example.com"},
+                },
+                "required": ["to", "subject", "body"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_emails",
+            "description": "List emails from an account/folder, newest first. Returns subject, sender, date, UID, and account for each email. Use list_email_accounts first when the user mentions Gmail/work/a custom mailbox. For last/latest/newest email requests, use max_results=1 and unread_only=false.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "folder": {"type": "string", "description": "IMAP folder (default: INBOX)"},
+                    "max_results": {"type": "integer", "description": "Max emails to return (default: 20)"},
+                    "limit": {"type": "integer", "description": "Backward-compatible alias for max_results"},
+                    "unread_only": {"type": "boolean", "description": "Only show unread emails. Default false; set true only when the user asks for unread emails."},
+                    "unresponded_only": {"type": "boolean", "description": "Only show unanswered emails. Default false."},
+                    "account": {"type": "string", "description": "Optional account name/email/id from list_email_accounts, e.g. Gmail or user@example.com"},
+                },
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_email",
+            "description": "Read the full content of a specific email by UID.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "uid": {"type": "string", "description": "Email UID to read"},
+                    "folder": {"type": "string", "description": "IMAP folder (default: INBOX)"},
+                    "account": {"type": "string", "description": "Optional account name/email/id from list_email_accounts, especially when the UID came from a non-default mailbox"},
+                },
+                "required": ["uid"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "reply_to_email",
+            "description": "SEND a reply email immediately by UID. Do not use this when the user asks to open/start a reply window or draft; use ui_control action=open_email_reply instead. For follow-up 'reply ...' requests where the user clearly wants to send now, use the exact UID from the latest read_email/list_emails result; never invent UID 1. Automatically threads with In-Reply-To/References headers.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "uid": {"type": "string", "description": "Exact UID of the email to reply to from list_emails/read_email; never invent UID 1"},
+                    "body": {"type": "string", "description": "Reply body text"},
+                    "folder": {"type": "string", "description": "IMAP folder (default: INBOX)"},
+                    "account": {"type": "string", "description": "Optional account name/email/id from list_email_accounts, especially when the UID came from a non-default mailbox"},
+                },
+                "required": ["uid", "body"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "bulk_email",
+            "description": "Perform one action on many emails at once. Use this for 'delete all those', 'archive these', 'mark all read', or any bulk operation after list_emails. Always pass account when the listed emails came from a named account such as Gmail.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string", "enum": ["mark_read", "mark_unread", "archive", "delete", "junk"], "description": "Bulk action to perform"},
+                    "uids": {"type": "array", "items": {"type": "string"}, "description": "UIDs from the latest list_emails result"},
+                    "all_unread": {"type": "boolean", "description": "Operate on all unread messages in folder instead of explicit UIDs"},
+                    "folder": {"type": "string", "description": "IMAP folder (default: INBOX)"},
+                    "permanent": {"type": "boolean", "description": "For delete: hard-delete instead of moving to Trash"},
+                    "account": {"type": "string", "description": "Account name/email/id from list_email_accounts, e.g. Gmail or user@example.com"},
+                },
+                "required": ["action"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_email",
+            "description": "Delete one email by UID. For multiple messages, use bulk_email instead. Always pass account when the email came from a named account such as Gmail.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "uid": {"type": "string", "description": "Email UID from list_emails/read_email"},
+                    "folder": {"type": "string", "description": "IMAP folder (default: INBOX)"},
+                    "permanent": {"type": "boolean", "description": "Hard-delete instead of moving to Trash"},
+                    "account": {"type": "string", "description": "Account name/email/id from list_email_accounts"},
+                },
+                "required": ["uid"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "archive_email",
+            "description": "Archive one email by UID. For multiple messages, use bulk_email instead. Always pass account when the email came from a named account such as Gmail.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "uid": {"type": "string", "description": "Email UID from list_emails/read_email"},
+                    "folder": {"type": "string", "description": "IMAP folder (default: INBOX)"},
+                    "account": {"type": "string", "description": "Account name/email/id from list_email_accounts"},
+                },
+                "required": ["uid"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "mark_email_read",
+            "description": "Mark one email as read or unread by UID. For multiple messages, use bulk_email instead. Always pass account when the email came from a named account such as Gmail.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "uid": {"type": "string", "description": "Email UID from list_emails/read_email"},
+                    "folder": {"type": "string", "description": "IMAP folder (default: INBOX)"},
+                    "read": {"type": "boolean", "description": "True marks read; false marks unread"},
+                    "account": {"type": "string", "description": "Account name/email/id from list_email_accounts"},
+                },
+                "required": ["uid"]
+            }
+        }
+    },
 ]
 
 
@@ -881,6 +1210,11 @@ def function_call_to_tool_block(name: str, arguments: str) -> Optional[ToolBlock
     if tool_type.startswith("mcp__"):
         content = json.dumps(args) if args else "{}"
         return ToolBlock(tool_type, content)
+    # Email tools are implemented as MCP — route them to email
+    _BUILTIN_EMAIL_TOOLS = {"list_email_accounts", "send_email", "list_emails", "read_email", "reply_to_email",
+                            "archive_email", "delete_email", "mark_email_read", "bulk_email", "download_attachment"}
+    if name in _BUILTIN_EMAIL_TOOLS:
+        return ToolBlock(f"mcp__email__{name}", json.dumps(args) if args else "{}")
     if tool_type not in TOOL_TAGS:
         logger.warning(f"Unknown function call: {name}")
         return None
@@ -898,6 +1232,12 @@ def function_call_to_tool_block(name: str, arguments: str) -> Optional[ToolBlock
             content = str(queries)
         else:
             content = args.get("query", "")
+        # Preserve the model-requested freshness filter — the web_search schema
+        # advertises time_filter and the executor parses {"query","time_filter"},
+        # but a bare query string dropped it. Mirrors the read_file JSON idiom.
+        tf = args.get("time_filter")
+        if content and isinstance(tf, str) and tf in ("day", "week", "month", "year"):
+            content = json.dumps({"query": content, "time_filter": tf})
     elif tool_type == "read_file":
         # Plain path (back-compat) unless a line range is requested → JSON.
         if args.get("offset") or args.get("limit"):
@@ -918,14 +1258,24 @@ def function_call_to_tool_block(name: str, arguments: str) -> Optional[ToolBlock
         content = "\n".join(parts)
     elif tool_type == "edit_document":
         blocks = []
-        for edit in args.get("edits", []):
+        edits = args.get("edits", [])
+        if not isinstance(edits, list):
+            edits = []
+        for edit in edits:
+            if not isinstance(edit, dict):
+                continue
             blocks.append(
                 f'<<<FIND>>>\n{edit.get("find", "")}\n<<<REPLACE>>>\n{edit.get("replace", "")}\n<<<END>>>'
             )
         content = "\n".join(blocks)
     elif tool_type == "suggest_document":
         blocks = []
-        for s in args.get("suggestions", []):
+        suggestions = args.get("suggestions", [])
+        if not isinstance(suggestions, list):
+            suggestions = []
+        for s in suggestions:
+            if not isinstance(s, dict):
+                continue
             blocks.append(
                 f'<<<FIND>>>\n{s.get("find", "")}\n<<<SUGGEST>>>\n{s.get("replace", "")}\n<<<REASON>>>\n{s.get("reason", "")}\n<<<END>>>'
             )
@@ -988,6 +1338,11 @@ def function_call_to_tool_block(name: str, arguments: str) -> Optional[ToolBlock
             content = f"toggle {name} {value}"
         elif action == "open_panel":
             content = f"open_panel {name or value}"
+        elif action == "open_email_reply":
+            uid = args.get("uid") or name
+            folder = args.get("folder") or value or "INBOX"
+            mode = args.get("mode") or "reply"
+            content = f"open_email_reply {uid} {folder} {mode}"
         elif action == "set_mode":
             content = f"set_mode {value or name}"
         elif action == "switch_model":
