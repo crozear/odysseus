@@ -4,6 +4,7 @@
 // ============================================
 import Storage from './js/storage.js';
 import uiModule from './js/ui.js';
+import workspaceModule from './js/workspace.js';
 import fileHandlerModule from './js/fileHandler.js';
 import modelsModule from './js/models.js';
 import ragModule from './js/rag.js';
@@ -22,7 +23,6 @@ import voiceRecorderModule from './js/voiceRecorder.js';
 import censorModule from './js/censor.js';
 import galleryModule from './js/gallery.js';
 import tasksModule from './js/tasks.js';
-import calendarModule from './js/calendar.js';
 import notesModule from './js/notes.js';
 import adminModule from './js/admin.js';
 import settingsModule from './js/settings.js';
@@ -225,7 +225,7 @@ function initializeEventListeners() {
       '.export-dropdown-menu.open, .overflow-menu.open, .model-picker-menu.open, .doc-overflow-menu.open'
     ).forEach(m => { if (m !== except) m.classList.remove('open'); });
     document.querySelectorAll(
-      '.skill-kebab-menu, .note-reminder-menu, .task-dropdown, .doclib-card-dropdown, .email-card-dropdown, .msg-overflow-menu'
+      '.skill-kebab-menu, .note-reminder-menu, .task-dropdown, .doclib-card-dropdown, .msg-overflow-menu'
     ).forEach(m => { if (m !== except) m.remove(); });
   };
   // Window-opening / nav controls (rail buttons, sidebar tool rows + session
@@ -526,15 +526,6 @@ function initializeEventListeners() {
         return;
       }
 
-      // Calendar owns a few inner Escape layers (settings panel, event form,
-      // then the calendar modal itself). Let calendar.js handle those instead
-      // of falling through to unrelated page-level fallbacks like document
-      // panel minimize.
-      const calendarModal = document.getElementById('calendar-modal');
-      if (calendarModal && !calendarModal.classList.contains('hidden') && getComputedStyle(calendarModal).display !== 'none') {
-        return;
-      }
-
       // Model picker popup — close before opening any modals
       const modelPickerMenu = document.getElementById('model-picker-menu');
       if (modelPickerMenu && modelPickerMenu.classList.contains('open')) {
@@ -553,7 +544,7 @@ function initializeEventListeners() {
       };
 
       // Dynamic modals (removed from DOM on close)
-      const dynamicModals = ['library-modal', 'archive-modal', 'doclib-modal', 'gallery-modal', 'tasks-modal', 'email-lib-modal'];
+      const dynamicModals = ['library-modal', 'archive-modal', 'doclib-modal', 'gallery-modal', 'tasks-modal'];
       for (const id of dynamicModals) {
         const m = document.getElementById(id);
         if (id === 'gallery-modal') {
@@ -890,22 +881,6 @@ function initializeEventListeners() {
       }
     });
   }
-
-  // Calendar tool button
-  const toolCalendarBtn = el('tool-calendar-btn');
-  if (toolCalendarBtn) {
-    toolCalendarBtn.addEventListener('click', async () => {
-      if (!calendarModule) return;
-      const Modals = await import('./js/modalManager.js');
-      // toggle returns true when a registered modal was minimized/restored;
-      // returns false when nothing is registered → open fresh.
-      if (!Modals.toggle('calendar-modal')) {
-        if (calendarModule.isCalendarOpen()) calendarModule.closeCalendar();
-        else calendarModule.openCalendar();
-      }
-    });
-  }
-
   // Notes tool button
   const toolNotesBtn = el('tool-notes-btn');
   if (toolNotesBtn) {
@@ -921,7 +896,7 @@ function initializeEventListeners() {
     setInterval(() => notesModule.refreshDueBadge(), 5 * 60 * 1000);
   }
 
-  // URL-based panel routing — bookmark /calendar, /notes, /cookbook etc
+  // URL-based panel routing — bookmark, /notes, /cookbook etc
   // and the matching tool opens automatically on page load.
   const urlPath = window.location.pathname;
   // Current width of the always-visible icon rail. The rail is resizable
@@ -936,8 +911,8 @@ function initializeEventListeners() {
   };
   // Collapse the wide sidebar so the icon rail (48px mini sidebar) shows
   // in its place. The two are mutually exclusive — sidebar-layout.js:57
-  // only displays the rail when `.sidebar.hidden` is set. Used by /email
-  // and /notes route openers so those fullscreen views keep the rail
+  // only displays the rail when `.sidebar.hidden` is set. Used by
+  // /notes route openers so those fullscreen views keep the rail
   // visible as the user's navigation strip. Records the prior state on
   // body so a paired close-handler can restore it without overriding a
   // manual toggle the user did in between.
@@ -1005,41 +980,7 @@ function initializeEventListeners() {
         setTimeout(_go, 200);
       }
     },
-    '/calendar': () => calendarModule && calendarModule.openCalendar(),
     '/cookbook': () => document.getElementById('tool-cookbook-btn')?.click(),
-    '/email':    () => {
-      // Collapse the wide sidebar → icon rail (48px) so the user keeps
-      // navigation visible alongside the fullscreen email view.
-      _collapseSidebarToRail();
-      // Spawn a fresh chat first so a reply (or any AI work the user
-      // chains off the email) lives in its own session instead of grafting
-      // onto whatever was last open. The rail button has the full
-      // default-chat / fallback-model resolution logic baked in, so just
-      // delegate to it.
-      try { document.getElementById('rail-new-session')?.click(); } catch (_) {}
-      // The email library is opened by clicking the email section's HEADER
-      // row (.section-header-flex), not the title span. Trigger that, then
-      // snap the modal to fullscreen on the next frame.
-      const hdr = document.querySelector('#email-section .section-header-flex');
-      if (hdr) hdr.click();
-      // The modal is built synchronously inside openEmailLibrary, so a
-      // single frame later it's in the DOM and ready to be flagged.
-      // Fullscreen leaves the icon-rail visible on the left so navigation
-      // stays one click away (per #93). Width = viewport minus rail.
-      // Just add the class — the CSS rule for .email-lib-fullscreen .modal-content
-      // owns all the positioning (with !important so it beats openEmailLibrary's
-      // post-mount centering rAF) and reads the rail width from --icon-rail-w.
-      const _goFullscreen = () => {
-        const modal = document.getElementById('email-lib-modal');
-        if (!modal) return false;
-        modal.classList.add('email-lib-fullscreen');
-        return true;
-      };
-      _goFullscreen();
-      requestAnimationFrame(_goFullscreen);
-      setTimeout(_goFullscreen, 50);
-      setTimeout(_goFullscreen, 200);
-    },
     '/memory':   () => document.getElementById('tool-memory-btn')?.click(),
     '/gallery':  () => document.getElementById('tool-gallery-btn')?.click(),
     '/tasks':    () => document.getElementById('tool-tasks-btn')?.click(),
@@ -1047,8 +988,7 @@ function initializeEventListeners() {
   };
   const _opener = _routeOpen[urlPath];
   // Defer the opener — at this point in init, the modules whose handlers
-  // we trigger (#rail-new-session click handler, the email-section header
-  // click handler in emailInbox, sessionModule's loaded session list) are
+  // we trigger (#rail-new-session click handler, sessionModule's loaded session list) are
   // still being wired up further down in this same function. Stash the
   // opener so it runs from sessionModule.loadSessions().finally() below.
   if (_opener) window._odysseusRouteOpener = _opener;
@@ -1062,7 +1002,7 @@ function initializeEventListeners() {
   }
 
   // "+" on the Library row → create a new blank document and open it in the
-  // editor (mirrors the email section's compose "+"). stopPropagation so it
+  // editor. stopPropagation so it
   // doesn't also fire the row's open-library click.
   const libraryNewDocBtn = el('library-new-doc-btn');
   if (libraryNewDocBtn) {
@@ -1337,6 +1277,7 @@ function initializeEventListeners() {
         deep_research:   ['research-toggle-btn', 'tool-research-btn', 'overflow-research-btn', 'rail-research'],
         document_editor: ['overflow-doc-btn', 'rail-documents'],
         gallery:         ['tool-gallery-btn', 'rail-gallery'],
+        thinking:         ['thinking-toggle-btn'],
       };
       Object.entries(map).forEach(([key, ids]) => {
         if (features[key] === false) {
@@ -1585,15 +1526,7 @@ function initializeEventListeners() {
   function applyModeToToggles(mode) {
     MODE_TOOLS.forEach(({ btnId, checkboxId, stateKey }) => {
       const btn = el(btnId);
-      if (!btn) return;
-      // Hide bash button in chat mode
-      if (mode === 'chat' && stateKey === 'bash') {
-        btn.style.display = 'none';
-        return;
-      }
-      // Show buttons in agent mode (or for web toggle in any mode)
-      btn.style.display = '';
-      if (btn.style.display === 'none') return;
+      if (!btn || btn.style.display === 'none') return;
       const on = loadToolPref(stateKey, mode);
       btn.classList.toggle('active', on);
       if (checkboxId) { const chk = el(checkboxId); if (chk) chk.checked = on; }
@@ -1607,12 +1540,6 @@ function initializeEventListeners() {
     if (!agentBtn || !chatBtn) return;
     const state = loadToggleState();
     let currentMode = state.mode || 'chat';
-
-    // Immediately hide bash button in chat mode on page load
-    if (currentMode === 'chat') {
-      const bashBtn = el('bash-toggle-btn');
-      if (bashBtn) bashBtn.style.display = 'none';
-    }
 
     function setMode(mode) {
       currentMode = mode;
@@ -1701,6 +1628,8 @@ function initializeEventListeners() {
   }
   setupToggle('web-toggle-btn', 'web-toggle', 'web');
   setupToggle('bash-toggle-btn', 'bash-toggle', 'bash');
+  setupToggle('thinking-toggle-btn', 'thinking-toggle', 'thinking');
+  try { workspaceModule.initWorkspace(); } catch (_) {}
 
   // Document editor toggle (special: uses module panel, not a checkbox)
   const overflowDocBtn = el('overflow-doc-btn');
@@ -1980,7 +1909,7 @@ function initializeEventListeners() {
     if (!inputLeft || !overflowMenu || !overflowWrapper) return;
 
     // Buttons that can be collapsed (in reverse priority — last collapsed first)
-    const collapsibleIds = ['bash-toggle-btn', 'web-toggle-btn'];
+    const collapsibleIds = ['bash-toggle-btn', 'web-toggle-btn', 'thinking-toggle-btn'];
     const collapsibleBtns = collapsibleIds.map(id => el(id)).filter(Boolean);
     // Map of toolbar btn id → overflow mirror element (created dynamically)
     const overflowMirrors = new Map();
@@ -2315,9 +2244,9 @@ function initializeEventListeners() {
         // IMPORTANT: don't overwrite the user's persisted per-mode tool prefs
         // (`web_agent`, `bash_agent`, `web_chat`, `bash_chat`). Nobody mode is
         // ephemeral — their agent-mode defaults must come back on toggle-off.
-        const _offIds = ['web-toggle', 'bash-toggle', 'research-toggle'];
+        const _offIds = ['web-toggle', 'bash-toggle', 'research-toggle', 'thinking-toggle'];
         _offIds.forEach(id => { const c = el(id); if (c) c.checked = false; });
-        ['web-toggle-btn', 'bash-toggle-btn'].forEach(id => { const b = el(id); if (b) b.classList.remove('active'); });
+        ['web-toggle-btn', 'bash-toggle-btn', 'thinking-toggle-btn'].forEach(id => { const b = el(id); if (b) b.classList.remove('active'); });
         const _ab = el('mode-agent-btn'), _cb = el('mode-chat-btn');
         if (_ab) _ab.classList.remove('active');
         if (_cb) _cb.classList.add('active');
@@ -2396,12 +2325,10 @@ function initializeEventListeners() {
     'sidebar-new-chat':    '#sidebar-new-chat-btn',
     'sidebar-search':      '#sidebar-search-btn',
     'sessions-section':    '#sessions-section',
-    'email-section':       '#email-section',
     'models-section':      '#models-section',
     'tools-section':       '#tools-section',
     // Per-tool visibility — fine-grained control over which entries show
     // inside the Tools section in the sidebar.
-    'tool-calendar':       '#tool-calendar-btn',
     'tool-compare':        '#tool-compare-btn',
     'tool-cookbook':       '#tool-cookbook-btn',
     'tool-research':       '#tool-research-btn',
@@ -2417,6 +2344,7 @@ function initializeEventListeners() {
     'welcome-text':        '.welcome-name, .welcome-sub, #welcome-tip',
     'incognito-btn':       '.incognito-btn',
     'web-toggle-btn':      '#web-toggle-btn',
+    'thinking-toggle-btn': '#thinking-toggle-btn',
     'doc-toggle-btn':      '#overflow-doc-btn',
     'rag-toggle-btn':      '#overflow-rag-btn',
     'bash-toggle-btn':     '#bash-toggle-btn',
@@ -2429,7 +2357,7 @@ function initializeEventListeners() {
   };
 
   // Keys hidden by default on first run (no localStorage yet)
-  const UI_VIS_DEFAULT_OFF = new Set(['models-section', 'rag-toggle-btn', 'text-emojis']);
+  const UI_VIS_DEFAULT_OFF = new Set(['models-section', 'rag-toggle-btn']);
 
   // Keys that need admin to toggle off (reserved for future use)
   const UI_VIS_ADMIN_ONLY = new Set([]);
@@ -2457,9 +2385,11 @@ function initializeEventListeners() {
     document.querySelectorAll('.section[draggable]').forEach(el => {
       el.setAttribute('draggable', dragEnabled ? 'true' : 'false');
     });
-    // Text-only emojis toggle. Default is OFF so model-emitted shortcodes
-    // like `:blush:` render through the normal monochrome emoji path.
-    applyTextEmojis(state['text-emojis'] === true);
+    // Text-only emojis toggle. Default is ON (the checkbox defaults to
+    // checked because text-emojis isn't in UI_VIS_DEFAULT_OFF), so treat
+    // an absent value as enabled — otherwise the toggle looked on at
+    // startup but the effect only activated after the user flipped it.
+    applyTextEmojis(state['text-emojis'] !== false);
     // Hide thinking sections toggle (show-thinking: checked=show, unchecked=hide)
     document.body.classList.toggle('hide-thinking', state['show-thinking'] === false);
   }
@@ -2853,7 +2783,6 @@ function initializeEventListeners() {
       // Modals managed by the new modalManager (Modals.register) get their own
       // .modal-minimize-btn and chips via the .minimized-dock-chip system.
       // Skip them entirely so we don't double-up minimize buttons or chips.
-      if (modal.id && /^email-reader-/.test(modal.id)) return;
       if (modal.id && window.Modals && window.Modals.isRegistered && window.Modals.isRegistered(modal.id)) return;
       const header = modal.querySelector('.modal-header');
       if (!header) return;
@@ -2949,7 +2878,7 @@ function initializeEventListeners() {
       ['.admin-tabs', '.admin-tab'],
     ];
     const _IGNORE = 'input, textarea, select, [contenteditable="true"], .preset-range, ' +
-      '.note-cl-row, .minimized-dock-chip, canvas, .email-card-reader';
+      '.note-cl-row, .minimized-dock-chip, canvas';
     let sx = 0, sy = 0, tracking = false;
 
     document.addEventListener('touchstart', (e) => {
@@ -3422,11 +3351,9 @@ function startOdysseusApp() {
     'rail-archive':   'tool-library-btn',
     'rail-gallery':   'tool-gallery-btn',
     'rail-tasks':     'tool-tasks-btn',
-    'rail-calendar':  'tool-calendar-btn',
     'rail-notes':     'tool-notes-btn',
     'rail-memory':    'tool-memory-btn',
     'rail-theme':     'tool-theme-btn',
-    'rail-email':     'email-section-title',
   };
   Object.entries(_railToolMap).forEach(([railId, toolId]) => {
     const railBtn = el(railId);
@@ -3485,8 +3412,8 @@ function startOdysseusApp() {
     });
   }
 
-  // Sync the contextual rail icons. Tool launchers (calendar/compare/cookbook/
-  // research/gallery/tasks/archive/memory/notes/theme/email) are now
+  // Sync the contextual rail icons. Tool launchers (compare/cookbook/
+  // research/gallery/tasks/archive/memory/notes/theme) are now
   // always-visible launchers, so only the doc + background-chat indicators
   // are shown/hidden dynamically here.
   function _syncRailDynamic() {

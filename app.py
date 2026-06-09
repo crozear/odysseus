@@ -692,6 +692,10 @@ logger.info("Webhook & API token routes initialized")
 from routes.note_routes import setup_note_routes
 app.include_router(setup_note_routes(task_scheduler))
 
+# Tasks (scheduled task CRUD)
+from routes.task_routes import setup_task_routes
+app.include_router(setup_task_routes(task_scheduler))
+
 # Codex integration — HTTP surface for the Codex plugin/MCP bridge. Reuses
 # api_token scopes (todos:read|write, memory, documents) so external Codex
 # sessions can only touch the data the user explicitly allowed.

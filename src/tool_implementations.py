@@ -12,9 +12,19 @@ import os
 import re
 from typing import Any, Dict, List, Optional
 
-from src.constants import MAX_READ_CHARS, DEEP_RESEARCH_DIR, VAULT_FILE
-from src.tool_utils import get_mcp_manager
-from core.constants import internal_api_base
+MAX_OUTPUT_CHARS = 10_000
+MAX_READ_CHARS = 20_000
+
+
+def get_mcp_manager():
+    from src import agent_tools
+    return agent_tools.get_mcp_manager()
+
+
+def _truncate(text: str, limit: int = MAX_OUTPUT_CHARS) -> str:
+    if len(text) > limit:
+        return text[:limit] + f"\n... (truncated, {len(text)} chars total)"
+    return text
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +53,7 @@ def _parse_tool_args(content):
         args = {}
     # Unwrap {"body": {...}} envelope — but only if `body` is the sole key
     # and points at a dict. We don't want to clobber a legitimate `body`
-    # field on tools where it's a real arg (e.g. send_email body text).
+    # field on tools where it's a real arg (e.g. a notifier's body text).
     if (
         isinstance(args, dict)
         and len(args) == 1
@@ -137,8 +147,6 @@ def _sniff_doc_language(text: str) -> str:
         return "markdown"
     head = s[:600]
     hl = head.lower()
-    if _looks_like_email_document(s):
-        return "email"
     # Markup (unambiguous)
     if "<svg" in hl:
         return "svg"
@@ -169,43 +177,6 @@ def _sniff_doc_language(text: str) -> str:
         return "css"
     return "markdown"
 
-
-def _looks_like_email_document(text: str = "", title: str = "") -> bool:
-    import re as _re
-    title_l = (title or "").strip().lower()
-    if title_l in {"new email", "new mail", "new message"}:
-        return True
-    s = (text or "").lstrip()
-    if "\n---\n" in s and _re.search(r"(?im)^To:\s*", s) and _re.search(r"(?im)^Subject:\s*", s):
-        return True
-    return bool(_re.search(r"(?im)^To:\s*", s) and _re.search(r"(?im)^Subject:\s*", s))
-
-
-def _coerce_email_document_content(existing: str, incoming: str) -> str:
-    """Keep email docs in the To/Subject/---/body shape even if a model writes
-    only the body or dumps header labels without the separator."""
-    import re as _re
-    old = existing or ""
-    new = (incoming or "").strip()
-    if "\n---\n" in new:
-        return new
-    header = old.split("\n---\n", 1)[0] if "\n---\n" in old else "To: \nSubject: "
-    if _looks_like_email_document(new):
-        lines = new.splitlines()
-        last_header_idx = -1
-        header_re = _re.compile(r"^(To|Cc|Bcc|Subject|In-Reply-To|References|X-Source-UID|X-Source-Folder|X-Attachments):", _re.I)
-        for i, line in enumerate(lines):
-            if header_re.match(line.strip()):
-                last_header_idx = i
-        body_lines = lines[last_header_idx + 1:] if last_header_idx >= 0 else lines
-        while body_lines and not body_lines[0].strip():
-            body_lines.pop(0)
-        body = "\n".join(body_lines).strip()
-    else:
-        body = new
-    return header.rstrip() + "\n---\n" + body
-
-
 async def do_create_document(content_block: str, session_id: Optional[str] = None, owner: Optional[str] = None) -> Dict:
     """Create a new document. Supports two formats:
       1) Line-based: line 1 = title, line 2 (optional) = language, rest = content
@@ -220,7 +191,7 @@ async def do_create_document(content_block: str, session_id: Optional[str] = Non
     _KNOWN_LANGS = {
         "python", "javascript", "typescript", "html", "css", "markdown", "json",
         "yaml", "bash", "sql", "rust", "go", "java", "c", "cpp", "xml", "toml",
-        "ini", "ruby", "php", "csv", "email", "text", "plain", "svg",
+        "ini", "ruby", "php", "csv", "text", "plain", "svg",
     }
 
     # Try XML tag extraction first
@@ -258,8 +229,6 @@ async def do_create_document(content_block: str, session_id: Optional[str] = Non
         # No explicit language — sniff it from the content so an SVG / HTML / JSON
         # / code document isn't silently saved as markdown. Prose → markdown.
         language = _sniff_doc_language(content)
-    if _looks_like_email_document(content, title):
-        language = "email"
 
     if not title:
         title = "Untitled"
@@ -344,10 +313,7 @@ async def do_update_document(content: str, doc_id: Optional[str] = None, owner: 
         if not doc:
             return {"error": "No documents exist to update"}
 
-        is_email_doc = doc.language == "email" or _looks_like_email_document(doc.current_content or "", doc.title or "")
-        new_content = _coerce_email_document_content(doc.current_content or "", content) if is_email_doc else content.strip()
-        if is_email_doc:
-            doc.language = "email"
+        new_content = content.strip()
 
         new_ver = doc.version_count + 1
         ver = DocumentVersion(
@@ -539,7 +505,7 @@ async def do_suggest_document(content: str, doc_id: str = None, owner: Optional[
 # ---------------------------------------------------------------------------
 
 async def do_search_chats(query: str, limit: int = 20, owner: str | None = None) -> Dict:
-    """Search past session transcripts for the calling user's sessions only.
+    """Search past chat messages for the calling user's sessions only.
 
     Without an owner filter this used to leak EVERY user's chat history
     into the agent's `search_chats` results (v2 review HIGH-11). The
@@ -547,36 +513,63 @@ async def do_search_chats(query: str, limit: int = 20, owner: str | None = None)
     through; legacy callers without owner pass through as before but
     will only see legacy/null-owner rows.
     """
+    from src.database import SessionLocal, ChatMessage as DBChatMessage, Session as DBSession
+    # Escape LIKE wildcards in the user-supplied query so a stray % or _
+    # doesn't widen the match (and to keep the response deterministic).
+    safe_q = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    db = SessionLocal()
     try:
-        from src.session_search import search_session_messages
+        q = (
+            db.query(DBChatMessage, DBSession.id, DBSession.name)
+            .join(DBSession, DBChatMessage.session_id == DBSession.id)
+            .filter(
+                DBSession.archived == False,
+                DBChatMessage.content.ilike(f"%{safe_q}%", escape="\\"),
+                DBChatMessage.role.in_(["user", "assistant"]),
+            )
+        )
+        if owner is not None:
+            # Restrict to this user's sessions plus legacy null-owner
+            # rows (so single-user upgrades keep seeing their own data).
+            q = q.filter((DBSession.owner == owner) | (DBSession.owner.is_(None)))
+        rows = q.order_by(DBChatMessage.timestamp.desc()).limit(limit).all()
 
-        results = search_session_messages(query, limit=limit, owner=owner)
-        if not results:
+        if not rows:
             return {"results": f"No chats found matching \"{query}\"."}
 
         # Group by session to avoid duplicate links
         seen_sessions = {}
-        for result in results:
-            if result.session_id not in seen_sessions:
-                seen_sessions[result.session_id] = result
+        for msg, session_id, session_name in rows:
+            if session_id not in seen_sessions:
+                content = msg.content or ""
+                lower_content = content.lower()
+                idx = lower_content.find(query.lower())
+                if idx == -1:
+                    snippet = content[:150]
+                else:
+                    start = max(0, idx - 60)
+                    end = min(len(content), idx + len(query) + 60)
+                    snippet = ("..." if start > 0 else "") + content[start:end] + ("..." if end < len(content) else "")
+                seen_sessions[session_id] = {
+                    "name": session_name or "Untitled",
+                    "snippet": snippet,
+                    "role": msg.role,
+                    "timestamp": msg.timestamp.isoformat() if msg.timestamp else None,
+                }
 
         lines = [f"Found {len(seen_sessions)} session(s) matching \"{query}\":\n"]
-        for sid, result in seen_sessions.items():
-            lines.append(f"- **{result.session_name}** (#{sid})")
+        for sid, info in seen_sessions.items():
+            lines.append(f"- **{info['name']}** (#{sid})")
             lines.append(f"  Link: [Open chat](#{sid})")
-            lines.append(f"  Match ({result.role}): {result.content_snippet}")
-            if result.context_before:
-                before = result.context_before[-1]
-                lines.append(f"  Before ({before['role']}): {before['content'][:180]}")
-            if result.context_after:
-                after = result.context_after[0]
-                lines.append(f"  After ({after['role']}): {after['content'][:180]}")
+            lines.append(f"  > {info['snippet']}")
             lines.append("")
 
         return {"results": "\n".join(lines)}
     except Exception as e:
         logger.error(f"search_chats failed: {e}")
         return {"error": str(e), "exit_code": 1}
+    finally:
+        db.close()
 
 
 # ---------------------------------------------------------------------------
@@ -664,17 +657,6 @@ async def do_manage_skills(content: str, owner: Optional[str] = None) -> Dict:
             proc = args.get("steps") or []
         if not proc and not args.get("body_extra") and not args.get("solution"):
             return {"error": "procedure (or solution body) is required", "exit_code": 1}
-        # Same auto-publish gate as the extractor path — when the user
-        # has auto_approve_skills on and the caller didn't pin an explicit
-        # status, publish immediately. Audit later demotes/removes on fail.
-        _status_arg = args.get("status")
-        if not _status_arg:
-            try:
-                from routes.prefs_routes import _load_for_user as _load_prefs
-                _prefs = _load_prefs(owner) or {}
-                _status_arg = "published" if _prefs.get("auto_approve_skills", True) else "draft"
-            except Exception:
-                _status_arg = "draft"
         entry = sm.add_skill(
             name=args.get("name"),
             description=(args.get("description") or args.get("title") or "").strip(),
@@ -688,7 +670,7 @@ async def do_manage_skills(content: str, owner: Optional[str] = None) -> Dict:
             procedure=proc,
             pitfalls=args.get("pitfalls") or [],
             verification=args.get("verification") or [],
-            status=_status_arg,
+            status=args.get("status") or "draft",
             version=args.get("version") or "1.0.0",
             confidence=args.get("confidence", 0.8),
             source=args.get("source", "learned"),
@@ -825,202 +807,6 @@ def _skill_dump(sk) -> Dict:
         "verification": sk.verification,
         "body_extra": sk.body_extra,
     }
-
-
-# ---------------------------------------------------------------------------
-# Task management tool
-# ---------------------------------------------------------------------------
-
-async def do_manage_tasks(content: str, owner: Optional[str] = None) -> Dict:
-    """Handle manage_tasks tool calls: CRUD on scheduled tasks."""
-    import uuid as _uuid
-    from core.database import SessionLocal, ScheduledTask
-    from src.task_scheduler import compute_next_run
-
-    try:
-        args = _parse_tool_args(content)
-    except ValueError:
-        return {"error": "Invalid JSON arguments", "exit_code": 1}
-
-    action = args.get("action", "list")
-    db = SessionLocal()
-    try:
-        if action == "list":
-            q = db.query(ScheduledTask)
-            if owner:
-                q = q.filter(ScheduledTask.owner == owner)
-            tasks = q.order_by(ScheduledTask.created_at.desc()).all()
-            task_list = []
-            for t in tasks:
-                task_list.append({
-                    "id": t.id, "name": t.name, "status": t.status,
-                    "task_type": t.task_type or "llm",
-                    "action": t.action,
-                    "trigger_type": t.trigger_type or "schedule",
-                    "schedule": t.schedule,
-                    "trigger_event": t.trigger_event,
-                    "trigger_count": t.trigger_count,
-                    "next_run": t.next_run.isoformat() + "Z" if t.next_run else None,
-                    "last_run": t.last_run.isoformat() + "Z" if t.last_run else None,
-                    "run_count": t.run_count or 0,
-                })
-            return {"response": f"Found {len(task_list)} tasks", "tasks": task_list, "exit_code": 0}
-
-        elif action == "create":
-            task_type = args.get("task_type", "llm")
-            trigger_type = args.get("trigger_type", "schedule")
-
-            if task_type in ("llm", "research") and not args.get("prompt"):
-                return {"error": "Prompt is required for llm/research tasks", "exit_code": 1}
-            if task_type == "action" and not args.get("action_name"):
-                return {"error": "action_name is required for action tasks", "exit_code": 1}
-
-            # Compute next_run for schedule triggers
-            next_run = None
-            if trigger_type == "schedule":
-                schedule = args.get("schedule", "daily")
-                next_run = compute_next_run(
-                    schedule, args.get("scheduled_time", "09:00"),
-                    args.get("scheduled_day"),
-                )
-
-            task_id = str(_uuid.uuid4())
-            # Guard each fallback with `or`: args.get("prompt", default) returns
-            # None when the key is present but null, and None[:50] raises.
-            name = args.get("name") or (args.get("prompt") or args.get("action_name") or "Task")[:50]
-
-            task = ScheduledTask(
-                id=task_id,
-                owner=owner,
-                name=name,
-                prompt=args.get("prompt"),
-                task_type=task_type,
-                action=args.get("action_name"),
-                schedule=args.get("schedule") if trigger_type == "schedule" else None,
-                scheduled_time=args.get("scheduled_time", "09:00") if trigger_type == "schedule" else None,
-                scheduled_day=args.get("scheduled_day"),
-                trigger_type=trigger_type,
-                trigger_event=args.get("trigger_event"),
-                trigger_count=args.get("trigger_count"),
-                trigger_counter=0,
-                next_run=next_run,
-                status="active",
-                output_target=args.get("output_target", "session"),
-            )
-            db.add(task)
-            db.commit()
-            return {"response": f"Created task '{name}' (id: {task_id})", "task_id": task_id, "exit_code": 0}
-
-        elif action == "edit":
-            task_id = args.get("task_id")
-            if not task_id:
-                return {"error": "task_id is required for edit", "exit_code": 1}
-            task = db.query(ScheduledTask).filter(ScheduledTask.id == task_id).first()
-            if not task:
-                return {"error": f"Task {task_id} not found", "exit_code": 1}
-            if owner and task.owner and task.owner != owner:
-                return {"error": "Access denied", "exit_code": 1}
-
-            changed = []
-            for field in ("name", "prompt", "output_target"):
-                if args.get(field) is not None:
-                    setattr(task, field, args[field])
-                    changed.append(field)
-            if args.get("task_type") is not None:
-                task.task_type = args["task_type"]
-                changed.append("task_type")
-            if args.get("action_name") is not None:
-                task.action = args["action_name"]
-                changed.append("action")
-            if args.get("trigger_type") is not None:
-                task.trigger_type = args["trigger_type"]
-                changed.append("trigger_type")
-            if args.get("trigger_event") is not None:
-                task.trigger_event = args["trigger_event"]
-                changed.append("trigger_event")
-            if args.get("trigger_count") is not None:
-                task.trigger_count = args["trigger_count"]
-                changed.append("trigger_count")
-
-            schedule_changed = False
-            for field in ("schedule", "scheduled_time", "scheduled_day"):
-                if args.get(field) is not None:
-                    setattr(task, field, args[field])
-                    changed.append(field)
-                    schedule_changed = True
-
-            if schedule_changed and (task.trigger_type or "schedule") == "schedule":
-                task.next_run = compute_next_run(
-                    task.schedule, task.scheduled_time, task.scheduled_day,
-                )
-
-            db.commit()
-            return {"response": f"Updated task '{task.name}': {', '.join(changed)}", "exit_code": 0}
-
-        elif action == "delete":
-            task_id = args.get("task_id")
-            if not task_id:
-                return {"error": "task_id is required for delete", "exit_code": 1}
-            task = db.query(ScheduledTask).filter(ScheduledTask.id == task_id).first()
-            if not task:
-                return {"error": f"Task {task_id} not found", "exit_code": 1}
-            if owner and task.owner and task.owner != owner:
-                return {"error": "Access denied", "exit_code": 1}
-            name = task.name
-            db.delete(task)
-            db.commit()
-            return {"response": f"Deleted task '{name}'", "exit_code": 0}
-
-        elif action in ("pause", "resume"):
-            task_id = args.get("task_id")
-            if not task_id:
-                return {"error": f"task_id is required for {action}", "exit_code": 1}
-            task = db.query(ScheduledTask).filter(ScheduledTask.id == task_id).first()
-            if not task:
-                return {"error": f"Task {task_id} not found", "exit_code": 1}
-            if owner and task.owner and task.owner != owner:
-                return {"error": "Access denied", "exit_code": 1}
-
-            if action == "pause":
-                task.status = "paused"
-            else:
-                task.status = "active"
-                if (task.trigger_type or "schedule") == "schedule":
-                    task.next_run = compute_next_run(
-                        task.schedule, task.scheduled_time, task.scheduled_day,
-                    )
-            db.commit()
-            return {"response": f"Task '{task.name}' {action}d", "exit_code": 0}
-
-        elif action == "run":
-            task_id = args.get("task_id")
-            if not task_id:
-                return {"error": "task_id is required for run", "exit_code": 1}
-            task = db.query(ScheduledTask).filter(ScheduledTask.id == task_id).first()
-            if not task:
-                return {"error": f"Task {task_id} not found", "exit_code": 1}
-            if owner and task.owner and task.owner != owner:
-                return {"error": "Access denied", "exit_code": 1}
-
-            from src.event_bus import get_task_scheduler
-            scheduler = get_task_scheduler()
-            if scheduler:
-                started = await scheduler.run_task_now(task_id)
-                if started:
-                    return {"response": f"Task '{task.name}' triggered", "exit_code": 0}
-                else:
-                    return {"error": "Task is already running", "exit_code": 1}
-            return {"error": "Task scheduler not available", "exit_code": 1}
-
-        else:
-            return {"error": f"Unknown action: {action}", "exit_code": 1}
-
-    except Exception as e:
-        logger.error(f"manage_tasks error: {e}")
-        return {"error": str(e), "exit_code": 1}
-    finally:
-        db.close()
-
 
 # ---------------------------------------------------------------------------
 # Endpoint management tool
@@ -1531,17 +1317,15 @@ async def do_manage_settings(content: str, owner: Optional[str] = None) -> Dict:
             "search results": "search_result_count", "result count": "search_result_count",
             "default model": "default_model", "chat model": "default_model",
             "default endpoint": "default_endpoint_id",
-            "task model": "task_model", "background model": "task_model",
             "teacher model": "teacher_model", "teacher": "teacher_enabled",
             "utility model": "utility_model", "research model": "research_model",
+            "task model": "utility_model", "background model": "utility_model",
             "research max tokens": "research_max_tokens",
             "vision model": "vision_model", "vision": "vision_enabled",
             "image model": "image_model", "image quality": "image_quality",
             "image gen": "image_gen_enabled", "image generation": "image_gen_enabled",
             "reminder channel": "reminder_channel", "reminders": "reminder_channel",
             "ntfy topic": "reminder_ntfy_topic",
-            "webhook integration": "reminder_webhook_integration_id",
-            "webhook template": "reminder_webhook_payload_template", "webhook payload": "reminder_webhook_payload_template",
             "agent tool calls": "agent_max_tool_calls", "max tool calls": "agent_max_tool_calls",
             "agent timeout": "agent_stream_timeout_seconds", "stream timeout": "agent_stream_timeout_seconds",
             "token budget": "agent_input_token_budget", "input budget": "agent_input_token_budget",
@@ -1557,7 +1341,7 @@ async def do_manage_settings(content: str, owner: Optional[str] = None) -> Dict:
 
         _ENUMS = {
             "image_quality": ["low", "medium", "high"],
-            "reminder_channel": ["browser", "email", "ntfy", "webhook"],
+            "reminder_channel": ["browser", "ntfy"],
         }
         def _coerce(value, default):
             if isinstance(default, bool):
@@ -1654,7 +1438,7 @@ async def do_manage_settings(content: str, owner: Optional[str] = None) -> Dict:
                 return {"error": f"{key} must be one of: {', '.join(_ENUMS[key])}.", "exit_code": 1}
             s = load_settings()
             s[key] = value
-            if key in {"default_model", "research_model", "utility_model", "task_model", "vision_model", "image_model"}:
+            if key in {"default_model", "research_model", "utility_model", "vision_model", "image_model"}:
                 resolved = _endpoint_model_from_cache(str(value))
                 if resolved:
                     prefix = key[:-6]
@@ -1697,10 +1481,7 @@ async def do_manage_settings(content: str, owner: Optional[str] = None) -> Dict:
                 "skills": ["manage_skills"],
                 "images": ["generate_image"],
                 "image": ["generate_image"],
-                "tasks": ["manage_tasks"],
                 "notes": ["manage_notes"],
-                "calendar": ["manage_calendar"],
-                "email": ["mcp__email__list_emails", "mcp__email__read_email", "mcp__email__send_email"],
                 "research": ["web_search"],  # research is a per-request flag, not a tool — closest analog
             }
 
@@ -1710,7 +1491,7 @@ async def do_manage_settings(content: str, owner: Optional[str] = None) -> Dict:
                     "response": (
                         f"Currently disabled: {', '.join(current) if current else '(none)'}.\n"
                         "Common toggles: shell (bash), search (web_search), browser, documents, "
-                        "memory, skills, images, tasks, notes, calendar, email."
+                        "memory, skills, images, tasks, notes."
                     ),
                     "disabled": list(current),
                     "exit_code": 0,
@@ -1830,22 +1611,6 @@ async def do_manage_notes(content: str, owner: Optional[str] = None) -> Dict:
         text = re.sub(r"^\s*reminder\s*:\s*", "", text)
         return re.sub(r"\s+", " ", text)
 
-    def _note_visible_to_owner(note, owner_value: Optional[str]) -> bool:
-        # Empty owner_value is single-user / auth-disabled mode. A real
-        # authenticated owner must match exactly; null/empty legacy rows are not
-        # shared between accounts.
-        if not owner_value:
-            return True
-        return getattr(note, "owner", None) == owner_value
-
-    def _note_by_prefix(note_id: str):
-        if not note_id:
-            return None
-        q = db.query(Note).filter(Note.id.startswith(note_id))
-        if owner:
-            q = q.filter(Note.owner == owner)
-        return q.first()
-
     try:
         if action == "list":
             q = db.query(Note)
@@ -1909,7 +1674,7 @@ async def do_manage_notes(content: str, owner: Optional[str] = None) -> Dict:
             due_iso = None
             if due_raw:
                 try:
-                    from routes.calendar_routes import parse_due_for_user as _pdt_user
+                    from src.due_date import parse_due_for_user as _pdt_user
                     due_iso = _pdt_user(due_raw)
                 except Exception:
                     due_iso = due_raw  # fall through; trust the model
@@ -1965,10 +1730,10 @@ async def do_manage_notes(content: str, owner: Optional[str] = None) -> Dict:
 
         elif action == "update":
             note_id = args.get("id", "")
-            note = _note_by_prefix(note_id)
+            note = db.query(Note).filter(Note.id.startswith(note_id)).first() if note_id else None
             if not note:
                 return {"error": f"Note '{note_id}' not found", "exit_code": 1}
-            if not _note_visible_to_owner(note, owner):
+            if owner is not None and note.owner and note.owner != owner:
                 return {"error": "Note not found", "exit_code": 1}
             for field in ("title", "content", "note_type", "color", "label"):
                 if field in args and args[field] is not None:
@@ -1982,7 +1747,7 @@ async def do_manage_notes(content: str, owner: Optional[str] = None) -> Dict:
             if args.get("due_date") is not None:
                 due_raw = args["due_date"]
                 try:
-                    from routes.calendar_routes import parse_due_for_user as _pdt_user
+                    from src.due_date import parse_due_for_user as _pdt_user
                     note.due_date = _pdt_user(due_raw)
                 except Exception:
                     note.due_date = due_raw  # fall through; trust the model
@@ -2001,10 +1766,10 @@ async def do_manage_notes(content: str, owner: Optional[str] = None) -> Dict:
 
         elif action == "delete":
             note_id = args.get("id", "")
-            note = _note_by_prefix(note_id)
+            note = db.query(Note).filter(Note.id.startswith(note_id)).first() if note_id else None
             if not note:
                 return {"error": f"Note '{note_id}' not found", "exit_code": 1}
-            if not _note_visible_to_owner(note, owner):
+            if owner is not None and note.owner and note.owner != owner:
                 return {"error": "Note not found", "exit_code": 1}
             title = note.title
             db.delete(note)
@@ -2014,10 +1779,10 @@ async def do_manage_notes(content: str, owner: Optional[str] = None) -> Dict:
         elif action == "toggle_item":
             note_id = args.get("id", "")
             index = args.get("index", 0)
-            note = _note_by_prefix(note_id)
+            note = db.query(Note).filter(Note.id.startswith(note_id)).first() if note_id else None
             if not note:
                 return {"error": f"Note '{note_id}' not found", "exit_code": 1}
-            if not _note_visible_to_owner(note, owner):
+            if owner is not None and note.owner and note.owner != owner:
                 return {"error": "Note not found", "exit_code": 1}
             if not note.items:
                 return {"error": "Note has no checklist items", "exit_code": 1}
@@ -2038,468 +1803,12 @@ async def do_manage_notes(content: str, owner: Optional[str] = None) -> Dict:
         return {"error": str(e), "exit_code": 1}
     finally:
         db.close()
-
-
-# ---------------------------------------------------------------------------
-# Calendar tool — CalDAV-backed event CRUD
-# ---------------------------------------------------------------------------
-
-async def do_manage_calendar(content: str, owner: Optional[str] = None) -> Dict:
-    """Handle manage_calendar tool calls: list/create/update/delete calendar events (local SQLite)."""
-    from datetime import datetime, timedelta
-    from core.database import SessionLocal, CalendarCal, CalendarEvent, Note
-    from routes.calendar_routes import _ensure_default_calendar, _parse_dt, _parse_dt_pair, parse_due_for_user, _resolve_base_uid
-    import uuid as _uuid
-
-    try:
-        args = _parse_tool_args(content)
-    except ValueError:
-        return {"error": "Invalid JSON arguments", "exit_code": 1}
-
-    # Normalize action — some models emit hyphens ("list-calendars") instead
-    # of underscores. Treat them as equivalent so we don't bounce a
-    # cosmetic typo back to the model and waste a round-trip. Also accept
-    # short forms (`create`, `update`, `delete`) as aliases for the
-    # full `<verb>_event` names — models keep emitting the short forms.
-    action = (args.get("action") or "list_events").replace("-", "_").strip().lower()
-    _ACTION_ALIASES = {
-        "create": "create_event",
-        "update": "update_event",
-        "delete": "delete_event",
-        "list": "list_events",
-    }
-    action = _ACTION_ALIASES.get(action, action)
-    db = SessionLocal()
-
-    def _calendar_query():
-        q = db.query(CalendarCal)
-        if owner is not None:
-            q = q.filter(CalendarCal.owner == owner)
-        return q
-
-    def _event_query():
-        q = db.query(CalendarEvent).join(CalendarCal)
-        if owner is not None:
-            q = q.filter(CalendarCal.owner == owner)
-        return q
-
-    def _reminder_minutes(raw_args) -> Optional[int]:
-        raw = (
-            raw_args.get("reminder_minutes")
-            or raw_args.get("remind_before_minutes")
-            or raw_args.get("alarm_minutes")
-            or raw_args.get("reminder")
-            or raw_args.get("alarm")
-        )
-        if raw in (None, ""):
-            desc = str(raw_args.get("description") or "")
-            if re.search(r"\b(remind|reminder|alarm)\b", desc, re.I):
-                raw = desc
-        if raw in (None, "", False):
-            return None
-        if raw is True:
-            return 10
-        if isinstance(raw, (int, float)):
-            return max(0, int(raw))
-        text = str(raw).strip().lower()
-        if text in {"none", "no", "off", "false"}:
-            return None
-        m = re.search(r"(\d+)\s*(?:m|min|minute|minutes)\b", text)
-        if m:
-            return max(0, int(m.group(1)))
-        m = re.search(r"(\d+)\s*(?:h|hr|hour|hours)\b", text)
-        if m:
-            return max(0, int(m.group(1)) * 60)
-        if text.isdigit():
-            return max(0, int(text))
-        return None
-
-    def _event_description(raw_args, minutes_before: Optional[int]) -> str:
-        desc = str(raw_args.get("description", "") or "")
-        if minutes_before is None:
-            return desc
-        reminder_only = re.compile(
-            r"^\s*(?:remind(?:er)?|alarm)\s*:?\s*\d+\s*"
-            r"(?:m|min|minute|minutes|h|hr|hour|hours)\b.*$",
-            re.I,
-        )
-        return "" if reminder_only.match(desc) else desc
-
-    def _parse_event_dt(raw: str) -> tuple[datetime, bool]:
-        """Parse agent event datetimes in the user's timezone when available."""
-        return _parse_dt_pair(parse_due_for_user(raw))
-
-    def _first_nonempty_arg(*names: str):
-        for name in names:
-            value = args.get(name)
-            if value not in (None, ""):
-                return value
-        return None
-
-    def _create_calendar_reminder(summary: str, location: str, dtstart: datetime,
-                                  all_day: bool, minutes_before: int,
-                                  is_utc: bool = False) -> tuple[Optional[str], Optional[str]]:
-        remind_at = dtstart - timedelta(minutes=minutes_before)
-        now = datetime.utcnow() if is_utc else datetime.now()
-        if dtstart <= now:
-            return None, "event already passed"
-        if remind_at <= now:
-            # If the requested "before" time already passed but the event is
-            # still upcoming, create an immediate Note reminder instead of
-            # silently dropping it.
-            remind_at = now
-        start_fmt = dtstart.strftime("%a %b %d") if all_day else dtstart.strftime("%a %b %d %H:%M")
-        loc = f" @ {location}" if location else ""
-        text = f"{summary}{loc} — {start_fmt}"
-        due_date = remind_at.isoformat() + ("Z" if is_utc else "")
-        expected_title = f"Reminder: {summary}"
-        existing_q = db.query(Note).filter(
-            Note.archived == False,  # noqa: E712
-            Note.due_date == due_date,
-        )
-        if owner is not None:
-            existing_q = existing_q.filter(Note.owner == owner)
-        target_title = re.sub(r"^\s*reminder\s*:\s*", "", expected_title.strip().lower())
-        for existing in existing_q.limit(25).all():
-            existing_title = re.sub(r"^\s*reminder\s*:\s*", "", (existing.title or "").strip().lower())
-            if existing_title == target_title:
-                return existing.id, "duplicate reminder already exists"
-        note = Note(
-            id=str(_uuid.uuid4()),
-            owner=owner,
-            title=expected_title,
-            items=json.dumps([{"text": text, "done": False, "checked": False}]),
-            note_type="todo",
-            label="calendar",
-            due_date=due_date,
-            source="calendar",
-        )
-        db.add(note)
-        return note.id, None
-
-    try:
-        if action == "list_calendars":
-            _ensure_default_calendar(db, owner)
-            cals = _calendar_query().all()
-            result = [{"name": c.name, "href": c.id} for c in cals]
-            if result:
-                lines = [f"Found {len(result)} calendar(s):"]
-                for c in result:
-                    lines.append(f"- {c['name']} ({c['href'][:8]})")
-                response_text = "\n".join(lines)
-            else:
-                response_text = "No calendars found."
-            return {"response": response_text, "calendars": result, "exit_code": 0}
-
-        elif action == "list_events":
-            try:
-                start_raw = _first_nonempty_arg(
-                    "start", "start_date", "range_start", "from", "dtstart", "since"
-                )
-                end_raw = _first_nonempty_arg(
-                    "end", "end_date", "range_end", "to", "dtend", "until"
-                )
-                if start_raw:
-                    start_dt = _parse_dt(start_raw)
-                else:
-                    start_dt = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-                if end_raw:
-                    end_dt = _parse_dt(end_raw)
-                else:
-                    end_dt = start_dt + timedelta(days=14)
-            except ValueError as e:
-                return {"error": f"Invalid date format: {e}", "exit_code": 1}
-
-            q = _event_query().filter(
-                CalendarEvent.dtstart < end_dt,
-                CalendarEvent.dtend > start_dt,
-                CalendarEvent.status != "cancelled",
-            )
-            calendar_filter = args.get("calendar")
-            if calendar_filter:
-                q = q.filter(
-                    (CalendarEvent.calendar_id == calendar_filter) |
-                    (CalendarCal.name == calendar_filter)
-                )
-            rows = q.order_by(CalendarEvent.dtstart).all()
-            events = []
-            for ev in rows:
-                if ev.all_day:
-                    s, e = ev.dtstart.strftime("%Y-%m-%d"), ev.dtend.strftime("%Y-%m-%d")
-                else:
-                    suffix = "Z" if getattr(ev, "is_utc", False) else ""
-                    s, e = ev.dtstart.isoformat() + suffix, ev.dtend.isoformat() + suffix
-                events.append({
-                    "uid": ev.uid, "summary": ev.summary or "", "dtstart": s, "dtend": e,
-                    "all_day": ev.all_day, "description": ev.description or "",
-                    "location": ev.location or "",
-                    "calendar": ev.calendar.name if ev.calendar else "",
-                    "calendar_href": ev.calendar_id,
-                    "event_type": ev.event_type or "",
-                    "importance": ev.importance or "normal",
-                })
-            if not events:
-                response_text = f"No events between {start_dt.date().isoformat()} and {end_dt.date().isoformat()}."
-            else:
-                lines = [f"Found {len(events)} event(s) between {start_dt.date().isoformat()} and {end_dt.date().isoformat()}:"]
-                for ev in events:
-                    when = ev["dtstart"]
-                    when_str = f"{when} (all day)" if ev.get("all_day") else f"{when} -> {ev.get('dtend', '')}"
-                    # Clickable anchor — opens the calendar on the event's day.
-                    line = f"- {when_str}: [{ev['summary']}](#event-{ev['uid']})"
-                    if ev.get("event_type"):
-                        line += f" #{ev['event_type']}"
-                    if ev.get("importance") and ev["importance"] != "normal":
-                        line += f" !{ev['importance']}"
-                    if ev.get("location"):
-                        line += f" @ {ev['location']}"
-                    if ev.get("calendar"):
-                        line += f" ({ev['calendar']})"
-                    if ev.get("description"):
-                        desc = ev["description"].strip().replace("\n", " ")
-                        if len(desc) > 120:
-                            desc = desc[:117] + "..."
-                        line += f"\n    {desc}"
-                    lines.append(line)
-                response_text = "\n".join(lines)
-            return {"response": response_text, "events": events, "exit_code": 0}
-
-        elif action == "create_event":
-            summary = args.get("summary")
-            # Accept the various names models like to use for the start
-            # field: dtstart (canonical), start, start_time, when.
-            dtstart_str = (args.get("dtstart") or args.get("start")
-                           or args.get("start_time") or args.get("when"))
-            if not summary or not dtstart_str:
-                return {"error": "summary and dtstart are required", "exit_code": 1}
-
-            # Accept either an href OR a calendar name/short-id like "Main"
-            # or "62e545d8" — saves the model from having to memorize hrefs
-            # after a `list_calendars` call returned short prefixes.
-            cal_href = args.get("calendar_href") or args.get("calendar")
-            cal = None
-            if cal_href:
-                cal = (_calendar_query()
-                       .filter(CalendarCal.id == cal_href)
-                       .first())
-                if not cal:
-                    # Try by name (case-insensitive) or by short-id prefix
-                    cal = (_calendar_query()
-                           .filter(CalendarCal.name.ilike(cal_href))
-                           .first())
-                if not cal:
-                    cal = (_calendar_query()
-                           .filter(CalendarCal.id.like(f"{cal_href}%"))
-                           .first())
-            if not cal:
-                cal = _ensure_default_calendar(db, owner)
-
-            all_day = bool(args.get("all_day", False))
-            try:
-                dtstart, dtstart_is_utc = _parse_event_dt(dtstart_str)
-            except ValueError as e:
-                return {"error": f"Could not parse dtstart {dtstart_str!r}: {e}", "exit_code": 1}
-            dtend_raw = args.get("dtend") or args.get("end") or args.get("end_time")
-            if dtend_raw:
-                try:
-                    dtend, dtend_is_utc = _parse_event_dt(dtend_raw)
-                    dtstart_is_utc = dtstart_is_utc or dtend_is_utc
-                except ValueError as e:
-                    return {"error": f"Could not parse dtend {dtend_raw!r}: {e}", "exit_code": 1}
-            else:
-                # Support duration: "1h", "30m", "90min", "1hr30m"
-                dur = (args.get("duration") or "").strip().lower()
-                delta = None
-                if dur:
-                    import re as _re_d
-                    h = _re_d.search(r'(\d+)\s*(?:h|hr|hours?)', dur)
-                    m = _re_d.search(r'(\d+)\s*(?:m|min|minutes?)', dur)
-                    secs = (int(h.group(1)) * 3600 if h else 0) + (int(m.group(1)) * 60 if m else 0)
-                    if secs > 0:
-                        delta = timedelta(seconds=secs)
-                if delta is not None:
-                    dtend = dtstart + delta
-                elif all_day:
-                    dtend = dtstart + timedelta(days=1)
-                else:
-                    dtend = dtstart + timedelta(hours=1)
-
-            # Dedup: if a non-cancelled event with the same title + start time already
-            # exists, return its UID instead of creating a fresh copy. Prevents the
-            # email triage from multiplying events when several emails reference the
-            # same meeting. Compare case-insensitively since LLM-extracted titles
-            # can vary in capitalisation.
-            from sqlalchemy import func as _func
-            existing = (
-                _event_query()
-                .filter(
-                    CalendarEvent.dtstart == dtstart,
-                    CalendarEvent.status != "cancelled",
-                    _func.lower(CalendarEvent.summary) == summary.lower(),
-                )
-                .first()
-            )
-            if existing is not None:
-                reminder_note_id = None
-                reminder_skipped_reason = None
-                minutes_before = _reminder_minutes(args)
-                if minutes_before is not None:
-                    reminder_note_id, reminder_skipped_reason = _create_calendar_reminder(
-                        existing.summary or summary,
-                        existing.location or "",
-                        existing.dtstart,
-                        existing.all_day,
-                        minutes_before,
-                        bool(existing.is_utc),
-                    )
-                    if reminder_note_id:
-                        db.commit()
-                reminder_text = ""
-                if minutes_before is not None:
-                    reminder_text = (
-                        f"; reminder set {minutes_before} min before"
-                        if reminder_note_id
-                        else f"; reminder not set ({reminder_skipped_reason or 'reminder time already passed'})"
-                    )
-                return {
-                    "response": (
-                        f"Event already exists: '{summary}' on {dtstart_str}"
-                        + reminder_text
-                    ),
-                    "uid": existing.uid,
-                    "reminder_note_id": reminder_note_id,
-                    "reminder_skipped_reason": reminder_skipped_reason,
-                    "duplicate": True,
-                    "exit_code": 0,
-                }
-
-            # Optional tag/category and importance — friendly aliases.
-            event_type = (args.get("event_type") or args.get("tag")
-                          or args.get("category") or args.get("type") or "") or None
-            importance = args.get("importance") or "normal"
-            minutes_before = _reminder_minutes(args)
-
-            uid = str(_uuid.uuid4())
-            ev = CalendarEvent(
-                uid=uid, calendar_id=cal.id, summary=summary,
-                description=_event_description(args, minutes_before),
-                location=args.get("location", "") or "",
-                dtstart=dtstart, dtend=dtend, all_day=all_day,
-                is_utc=dtstart_is_utc and not all_day,
-                rrule=args.get("rrule", "") or "",
-                event_type=event_type,
-                importance=importance,
-            )
-            db.add(ev)
-            reminder_note_id = None
-            reminder_skipped_reason = None
-            if minutes_before is not None:
-                reminder_note_id, reminder_skipped_reason = _create_calendar_reminder(
-                    summary,
-                    args.get("location", "") or "",
-                    dtstart,
-                    all_day,
-                    minutes_before,
-                    dtstart_is_utc and not all_day,
-                )
-            db.commit()
-            tag_blurb = f" [{event_type}]" if event_type else ""
-            if minutes_before is None:
-                reminder_blurb = ""
-            elif reminder_note_id:
-                reminder_blurb = f" with reminder {minutes_before} min before"
-            else:
-                reminder_blurb = f" without reminder ({reminder_skipped_reason or 'reminder time already passed'})"
-            # Return a clickable anchor so the agent can surface a link
-            # that opens the calendar on that day. See the markdown
-            # anchor convention ([Name](#event-<uid>)).
-            return {
-                "response": f"Created event [{summary}](#event-{uid}){tag_blurb} on {dtstart_str}{reminder_blurb}",
-                "uid": uid,
-                "anchor": f"[{summary}](#event-{uid})",
-                "reminder_note_id": reminder_note_id,
-                "reminder_skipped_reason": reminder_skipped_reason,
-                "exit_code": 0,
-            }
-
-        elif action == "update_event":
-            uid = args.get("uid")
-            if not uid:
-                return {"error": "uid is required", "exit_code": 1}
-            try:
-                base_uid = _resolve_base_uid(uid)
-            except ValueError as e:
-                return {"error": str(e), "exit_code": 1}
-            ev = _event_query().filter(CalendarEvent.uid == base_uid).first()
-            if not ev:
-                return {"error": f"Event {uid} not found", "exit_code": 1}
-            if args.get("summary") is not None:
-                ev.summary = args["summary"]
-            if args.get("description") is not None:
-                ev.description = args["description"]
-            if args.get("location") is not None:
-                ev.location = args["location"]
-            if args.get("dtstart") is not None:
-                # Anchor naive/natural-language input to the USER's timezone and
-                # refresh is_utc, exactly like create_event. Parsing with the
-                # raw server-local _parse_dt here (and never touching is_utc)
-                # silently shifted an updated event by the user's UTC offset.
-                _eff_all_day = (
-                    args["all_day"] if args.get("all_day") is not None else ev.all_day
-                )
-                ev.dtstart, _su = _parse_event_dt(args["dtstart"])
-                ev.is_utc = bool(_su and not _eff_all_day)
-            if args.get("dtend") is not None:
-                ev.dtend, _eu = _parse_event_dt(args["dtend"])
-            if args.get("all_day") is not None:
-                ev.all_day = args["all_day"]
-            # Tag/category + importance updates (any of these aliases).
-            _tag = (args.get("event_type") or args.get("tag")
-                    or args.get("category") or args.get("type"))
-            if _tag is not None:
-                ev.event_type = _tag or None
-            if args.get("importance") is not None:
-                ev.importance = args["importance"]
-            db.commit()
-            return {"response": f"Updated event {uid}", "exit_code": 0}
-
-        elif action == "delete_event":
-            uid = args.get("uid")
-            if not uid:
-                return {"error": "uid is required", "exit_code": 1}
-            try:
-                base_uid = _resolve_base_uid(uid)
-            except ValueError as e:
-                return {"error": str(e), "exit_code": 1}
-            ev = _event_query().filter(CalendarEvent.uid == base_uid).first()
-            if not ev:
-                return {"error": f"Event {uid} not found", "exit_code": 1}
-            db.delete(ev)
-            db.commit()
-            return {"response": f"Deleted event {uid}", "exit_code": 0}
-
-        else:
-            return {
-                "error": f"Unknown action: {action}. Use list_events, create_event, update_event, delete_event, list_calendars",
-                "exit_code": 1,
-            }
-
-    except Exception as e:
-        db.rollback()
-        logger.error(f"manage_calendar error: {e}")
-        return {"error": str(e), "exit_code": 1}
-    finally:
-        db.close()
-
-
 # ── Cookbook tools ──
 
-# In-process loopback base for agent tools that call Odysseus's own API
-# (cookbook state, model serve, gallery, email, calendar). We ride the
-# per-process internal token so require_admin lets us through. See
-# core/middleware.py. Resolution (override / APP_PORT / 7000) lives in
-# core.constants.internal_api_base().
-_INTERNAL_BASE = internal_api_base()
+# Cookbook routes loopback. The agent's tool calls run in-process but
+# need to reach admin-gated cookbook routes; we ride the per-process
+# internal token so require_admin lets us through. See core/middleware.py.
+_COOKBOOK_BASE = "http://localhost:7000"
 
 
 def _internal_headers(owner: Optional[str] = None) -> Dict[str, str]:
@@ -2518,7 +1827,7 @@ async def _cookbook_servers() -> Dict[str, Any]:
     import httpx
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            r = await client.get(f"{_INTERNAL_BASE}/api/cookbook/state", headers=_internal_headers())
+            r = await client.get(f"{_COOKBOOK_BASE}/api/cookbook/state", headers=_internal_headers())
             state = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
     except Exception:
         return {"default_host": "", "hosts": []}
@@ -2584,7 +1893,7 @@ async def _cookbook_env_for_host(host: str) -> Dict[str, Any]:
     state: Dict[str, Any] = {}
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            r = await client.get(f"{_INTERNAL_BASE}/api/cookbook/state", headers=headers)
+            r = await client.get(f"{_COOKBOOK_BASE}/api/cookbook/state", headers=headers)
             state = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
     except Exception as e:
         logger.debug(f"cookbook env lookup failed for host={host!r}: {e}")
@@ -2632,90 +1941,8 @@ async def _cookbook_env_for_host(host: str) -> Dict[str, Any]:
     }
 
 
-def _infer_serve_port(cmd: str) -> int:
-    """Infer likely listen port from a serve command."""
-    if not cmd:
-        return 8080
-    m = re.search(r"--port\\s+(\\d+)", cmd)
-    if m:
-        try:
-            return int(m.group(1))
-        except Exception:
-            pass
-    m = re.search(r"OLLAMA_HOST=[^\\s]*?:(\\d+)", cmd)
-    if m:
-        try:
-            return int(m.group(1))
-        except Exception:
-            pass
-    if "ollama" in cmd:
-        return 11434
-    return 8080
-
-
-def _infer_serve_host(host: str | None) -> tuple[str, bool]:
-    """Return (host, container_local) for registering a served endpoint."""
-    if not (host or "").strip():
-        return "localhost", True
-    base_host = host.split("@", 1)[-1] if "@" in host else host
-    return base_host, False
-
-
-async def _ensure_served_endpoint(
-    *,
-    model: str,
-    cmd: str,
-    host: str | None,
-) -> Dict[str, Any]:
-    """Register/fetch a model endpoint for a running serve session."""
-    import httpx
-    endpoint_host, container_local = _infer_serve_host(host)
-    port = _infer_serve_port(cmd)
-    base_url = f"http://{endpoint_host}:{port}/v1"
-    short_name = model.split("/")[-1] if "/" in model else model
-    is_image = "diffusion_server.py" in (cmd or "")
-    payload = {
-        "name": short_name if not is_image else f"{short_name} (image)",
-        "base_url": base_url,
-        "skip_probe": "true",
-        "model_type": "image" if is_image else "llm",
-        "container_local": "true" if container_local else "false",
-    }
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(
-                f"{_COOKBOOK_BASE}/api/model-endpoints",
-                data=payload,
-                headers=_internal_headers(),
-            )
-            data = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
-        if resp.status_code >= 400:
-            logger.debug(
-                f"ensure endpoint failed for {model!r}: status={resp.status_code} data={data}"
-            )
-            return {"added": False, "endpoint_id": "", "base_url": base_url, "error": data}
-        ep_id = data.get("id") if isinstance(data, dict) else None
-        return {
-            "added": bool(ep_id),
-            "endpoint_id": ep_id or "",
-            "base_url": base_url,
-            "data": data,
-        }
-    except Exception as e:
-        logger.debug(f"ensure endpoint exception for {model!r}: {e}")
-        return {"added": False, "endpoint_id": "", "base_url": base_url, "error": str(e)}
-
-
-async def _cookbook_register_task(
-    session_id: str,
-    model: str,
-    host: str,
-    cmd: str,
-    task_type: str = "serve",
-    *,
-    endpoint_added: bool = False,
-    endpoint_id: str = "",
-) -> bool:
+async def _cookbook_register_task(session_id: str, model: str, host: str,
+                                  cmd: str, task_type: str = "serve") -> bool:
     """Append a task entry to cookbook_state.json after the agent
     launches via /api/model/serve or /api/model/download. The route
     spawns tmux but leaves state-writing to the UI; the agent needs to
@@ -2726,7 +1953,7 @@ async def _cookbook_register_task(
     headers = _internal_headers()
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            r = await client.get(f"{_INTERNAL_BASE}/api/cookbook/state", headers=headers)
+            r = await client.get(f"{_COOKBOOK_BASE}/api/cookbook/state", headers=headers)
             state = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
     except Exception as e:
         logger.debug(f"cookbook state read failed: {e}")
@@ -2748,7 +1975,7 @@ async def _cookbook_register_task(
     placeholder = (
         f"Launched via agent — waiting for tmux output…\n"
         f"  session: {session_id}\n"
-        f"  target:  {target}{(cmd.split() or [''])[0] if cmd else ''}\n"
+        f"  target:  {target}{cmd.split()[0] if cmd else ''}\n"
         f"  cmd:     {cmd[:200]}{'…' if len(cmd) > 200 else ''}"
     )
     tasks.append({
@@ -2765,13 +1992,12 @@ async def _cookbook_register_task(
         "sshPort": "",
         "platform": "linux",
         "_serveReady": False,
-        "_endpointAdded": bool(endpoint_added),
-        "_endpointId": endpoint_id or "",
+        "_endpointAdded": False,
     })
     state["tasks"] = tasks
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            r = await client.post(f"{_INTERNAL_BASE}/api/cookbook/state",
+            r = await client.post(f"{_COOKBOOK_BASE}/api/cookbook/state",
                                   json=state, headers=headers)
         return r.status_code < 400
     except Exception as e:
@@ -2780,32 +2006,25 @@ async def _cookbook_register_task(
 
 
 # Paths the generic `app_api` tool will refuse to call. Auth/token/user
-# administration and host shell execution are too risky to route through an
-# agent surface even when the agent is admin-context; accidental account or
-# command mistakes have permanent blast radius.
+# administration is too risky to route through an agent surface even
+# when the agent is admin-context — accidental "delete account"
+# style mistakes have permanent blast radius.
 _APP_API_BLOCKLIST_PREFIXES = (
     "/api/auth",           # login/logout/password
     "/api/users",          # user CRUD (bare /api/users list+create+delete must also block)
     "/api/tokens",         # api token mgmt (bare /api/tokens list+create must also block)
     "/api/admin",          # admin one-shots (wipe etc.)
-    "/api/shell",          # host shell execution must stay behind named command tooling
     "/api/backup/restore", # destructive restore
 )
 
 # (method, prefix) pairs to refuse specifically. Used for endpoints
-# where GET is fine but writes are destructive or host-control shaped.
-# Saw the agent wipe cookbook_state.json (presets + tasks) by POSTing
-# {"tasks": []} to /api/cookbook/state, which overwrote the whole file.
-# Use dedicated tools or UI flows instead.
+# where GET is fine but writes are destructive — saw the agent wipe
+# cookbook_state.json (presets + tasks) by POSTing {"tasks": []} to
+# /api/cookbook/state, which overwrote the whole file. Use the
+# dedicated preset/task tools instead.
 _APP_API_BLOCKLIST_METHOD_PATH = (
-    ("GET",    "/api/email/accounts"),  # owner-filtered in tool context; use list_email_accounts MCP tool
     ("POST",   "/api/cookbook/state"),   # whole-file overwrite — agent must use serve_preset/serve_model instead
     ("DELETE", "/api/cookbook/state"),
-    # Host-control routes: package install, engine rebuild, and process
-    # signalling should not be reachable through the generic API bridge.
-    ("POST",   "/api/cookbook/packages/install"),
-    ("POST",   "/api/cookbook/rebuild-engine"),
-    ("POST",   "/api/cookbook/kill-pid"),
     # Use the named tools (download_model / serve_model) — they handle
     # host-name resolution, per-host env_prefix, AND register the task
     # in cookbook state so it shows in the UI + list_downloads. Hitting
@@ -2823,17 +2042,14 @@ _APP_API_BLOCKLIST_METHOD_PATH = (
     ("POST",   "/api/notes"),
     ("PUT",    "/api/notes"),
     ("DELETE", "/api/notes"),
-    ("POST",   "/api/calendar/events"),
-    ("PUT",    "/api/calendar/events"),
-    ("DELETE", "/api/calendar/events"),
 )
 
 
 async def do_app_api(content: str, owner: Optional[str] = None) -> Dict:
-    """Generic loopback to allowed internal Odysseus API endpoints. Lets the
-    agent reach the full UI-button surface (cookbook, email, notes,
-    calendar, skills, sessions, gallery, research, etc.) without us
-    landing a named tool wrapper for every one.
+    """Generic loopback to any internal Odysseus API endpoint. Lets the
+    agent reach the full UI-button surface (cookbook, notes, skills, sessions,
+    gallery, research, etc.) without us landing a named tool wrapper for
+    every one.
 
     Args (JSON):
       action: "call" (default) | "endpoints"
@@ -2844,8 +2060,7 @@ async def do_app_api(content: str, owner: Optional[str] = None) -> Dict:
 
     The `endpoints` action returns the OpenAPI surface (method + path +
     summary) so the agent can discover what's reachable. A blocklist
-    refuses sensitive auth/user/admin/shell paths and method-specific
-    host-control routes to keep blast radius bounded.
+    refuses auth/user/admin paths to keep blast radius bounded.
     """
     import httpx
     try:
@@ -2854,7 +2069,7 @@ async def do_app_api(content: str, owner: Optional[str] = None) -> Dict:
         return {"error": "Invalid JSON arguments", "exit_code": 1}
 
     action = (args.get("action") or "call").lower()
-    base = _INTERNAL_BASE
+    base = _COOKBOOK_BASE
 
     if action == "endpoints":
         # Fetch FastAPI's OpenAPI schema so the agent can discover any
@@ -2905,20 +2120,12 @@ async def do_app_api(content: str, owner: Optional[str] = None) -> Dict:
     if not path.startswith("/"):
         path = "/" + path
     if any(path.startswith(p) for p in _APP_API_BLOCKLIST_PREFIXES):
-        return {"error": f"Path blocked for safety: {path}. Sensitive endpoints are off-limits via app_api.", "exit_code": 1}
+        return {"error": f"Path blocked for safety: {path}. Auth/user/admin endpoints are off-limits via app_api.", "exit_code": 1}
 
     method = (args.get("method") or "GET").upper()
     if method not in ("GET", "POST", "PUT", "PATCH", "DELETE"):
         return {"error": f"Unsupported method: {method}", "exit_code": 1}
     if any(method == m and path.startswith(p) for m, p in _APP_API_BLOCKLIST_METHOD_PATH):
-        if "/api/email/accounts" in path:
-            return {"error": "Don't use /api/email/accounts via app_api — it is owner-filtered in tool context and may return empty. Use the `list_email_accounts` email tool, then pass `account` to list_emails/read_email.", "exit_code": 1}
-        if "/api/cookbook/packages/install" in path:
-            return {"error": "Don't POST /api/cookbook/packages/install via app_api — package installation is host code execution. Use the dedicated Cookbook dependency UI/flow instead.", "exit_code": 1}
-        if "/api/cookbook/rebuild-engine" in path:
-            return {"error": "Don't POST /api/cookbook/rebuild-engine via app_api — engine rebuild mutates local or remote host state. Use the dedicated Cookbook UI/flow instead.", "exit_code": 1}
-        if "/api/cookbook/kill-pid" in path:
-            return {"error": "Don't POST /api/cookbook/kill-pid via app_api — process signalling is host control. Use the dedicated Cookbook stop/diagnostic flow instead.", "exit_code": 1}
         if "/api/model/download" in path:
             return {"error": "Don't POST /api/model/download directly — use the `download_model` tool (it resolves the server name, sets the venv env_prefix, and registers the task so it shows in the UI).", "exit_code": 1}
         if "/api/model/serve" in path:
@@ -2927,14 +2134,12 @@ async def do_app_api(content: str, owner: Optional[str] = None) -> Dict:
             return {"error": "Don't POST /api/research/start directly — use the `trigger_research` tool (it surfaces the session in the Deep Research sidebar).", "exit_code": 1}
         if "/api/notes" in path:
             return {"error": "Don't hit /api/notes via app_api — use the `manage_notes` tool. It accepts natural-language due_date ('11pm today', 'tomorrow at 9am'), fires reminders from the due_date itself (no separate calendar event), and uses the caller's timezone. The raw endpoint requires ISO-UTC + a separate calendar event, both of which the agent tends to get wrong.", "exit_code": 1}
-        if "/api/calendar/events" in path:
-            return {"error": "Don't hit /api/calendar/events via app_api — use the `manage_calendar` tool. It handles tz-aware natural-language datetimes and reminder_minutes correctly. If the user wants a note + reminder, prefer `manage_notes` with due_date — it bundles both.", "exit_code": 1}
         return {"error": f"{method} {path} is blocked — it overwrites the whole cookbook state file. Use list_serve_presets / serve_preset / serve_model instead.", "exit_code": 1}
 
     body = args.get("body")
     query = args.get("query") or None
     # Pass owner so the backend impersonates the user — without this,
-    # POSTs (notes, calendar, todos, ...) get owner="internal-tool"
+    # POSTs (notes, todos, ...) get owner="internal-tool"
     # and the user that asked for them can't see the result.
     headers = {**_internal_headers(owner=owner), "Content-Type": "application/json"}
 
@@ -3102,12 +2307,7 @@ async def do_download_model(content: str, owner: Optional[str] = None) -> Dict:
         if _servers.get("default_host"):
             host = _servers["default_host"]
             _host_defaulted = True
-    backend = (args.get("backend") or "").strip().lower()
-    if not backend and "/" not in repo_id and ":" in repo_id:
-        backend = "ollama"
     payload = {"repo_id": repo_id}
-    if backend:
-        payload["backend"] = backend
     if host:
         payload["remote_host"] = host
     if args.get("include"):
@@ -3120,27 +2320,19 @@ async def do_download_model(content: str, owner: Optional[str] = None) -> Dict:
     if env_cfg.get("ssh_port"):   payload["ssh_port"]   = env_cfg["ssh_port"]
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(f"{_INTERNAL_BASE}/api/model/download",
+            resp = await client.post(f"{_COOKBOOK_BASE}/api/model/download",
                                      json=payload, headers=_internal_headers())
             data = resp.json()
         if data.get("ok"):
             sid = data.get("session_id", "?")
             registered = await _cookbook_register_task(
                 session_id=sid, model=repo_id, host=host,
-                cmd=(f"ollama pull {repo_id}" if backend == "ollama" else f"hf download {repo_id}"),
-                task_type="download",
+                cmd=f"hf download {repo_id}", task_type="download",
             )
             note = "" if registered else " (state-write failed — download may not show in UI)"
             where = host or "local"
             default_note = " (defaulted to the cookbook's selected server — pass host= or local=true to override)" if _host_defaulted else ""
-            return {
-                "output": f"Download started: {repo_id} on {where} (session: {sid}){note}{default_note}",
-                "session_id": sid,
-                "host": host,
-                "task_type": "download",
-                "phase": "running",
-                "exit_code": 0,
-            }
+            return {"output": f"Download started: {repo_id} on {where} (session: {sid}){note}{default_note}", "session_id": sid, "host": host, "exit_code": 0}
         return {"error": data.get("error", "Download failed"), "exit_code": 1}
     except Exception as e:
         return {"error": str(e), "exit_code": 1}
@@ -3204,33 +2396,17 @@ async def do_serve_model(content: str, owner: Optional[str] = None) -> Dict:
     if env_cfg.get("ssh_port"):   payload["ssh_port"]   = env_cfg["ssh_port"]
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(f"{_INTERNAL_BASE}/api/model/serve",
+            resp = await client.post(f"{_COOKBOOK_BASE}/api/model/serve",
                                      json=payload, headers=_internal_headers())
             data = resp.json()
         if data.get("ok"):
             sid = data.get("session_id", "?")
-            endpoint_id = data.get("endpoint_id") or ""
-            if endpoint_id:
-                endpoint_added = True
-            else:
-                endpoint_meta = await _ensure_served_endpoint(model=repo_id, cmd=cmd, host=host)
-                endpoint_added = bool(endpoint_meta.get("added"))
-                endpoint_id = endpoint_meta.get("endpoint_id", "") or endpoint_id
             registered = await _cookbook_register_task(
                 session_id=sid, model=repo_id,
                 host=host, cmd=cmd, task_type="serve",
-                endpoint_added=endpoint_added, endpoint_id=endpoint_id or "",
             )
             note = "" if registered else " (state-write failed — task may not show in UI)"
-            return {
-                "output": f"Serving {repo_id} (session: {sid}){note}",
-                "session_id": sid,
-                "task_type": "serve",
-                "phase": "running",
-                "host": host,
-                "endpoint_id": endpoint_id,
-                "exit_code": 0,
-            }
+            return {"output": f"Serving {repo_id} (session: {sid}){note}", "session_id": sid, "exit_code": 0}
         # FastAPI HTTPException puts the message under `detail`, not `error`.
         # Surface BOTH so the agent sees "Invalid characters in cmd" (from
         # _validate_serve_cmd rejecting `&&`/`source`/`cd`) instead of
@@ -3260,7 +2436,7 @@ async def do_list_served_models(content: str, owner: Optional[str] = None) -> Di
     cookbook_tasks: List[Dict[str, Any]] = []
     try:
         async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get(f"{_INTERNAL_BASE}/api/cookbook/tasks/status",
+            resp = await client.get(f"{_COOKBOOK_BASE}/api/cookbook/tasks/status",
                                     headers=_internal_headers())
             cookbook_tasks = (resp.json() or {}).get("tasks") or []
     except Exception as e:
@@ -3379,7 +2555,7 @@ async def _cookbook_kill_session(session_id: str, *, remote_host: str = "",
     state: Dict[str, Any] = {}
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(f"{_INTERNAL_BASE}/api/cookbook/state", headers=headers)
+            resp = await client.get(f"{_COOKBOOK_BASE}/api/cookbook/state", headers=headers)
             state = resp.json() or {}
     except Exception as e:
         logger.debug(f"cookbook state lookup failed for {session_id}: {e}")
@@ -3408,7 +2584,7 @@ async def _cookbook_kill_session(session_id: str, *, remote_host: str = "",
 
     try:
         async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.post(f"{_INTERNAL_BASE}/api/shell/exec",
+            resp = await client.post(f"{_COOKBOOK_BASE}/api/shell/exec",
                                      json={"command": cmd}, headers=headers)
         if resp.status_code >= 400:
             return {"error": f"shell/exec returned HTTP {resp.status_code}: {resp.text[:200]}", "exit_code": 1}
@@ -3429,7 +2605,7 @@ async def _cookbook_kill_session(session_id: str, *, remote_host: str = "",
             try:
                 matched["status"] = "stopped"
                 async with httpx.AsyncClient(timeout=10) as client:
-                    await client.post(f"{_INTERNAL_BASE}/api/cookbook/state",
+                    await client.post(f"{_COOKBOOK_BASE}/api/cookbook/state",
                                       json=state, headers=headers)
             except Exception as e:
                 logger.debug(f"failed to mark {session_id} stopped in state: {e}")
@@ -3492,7 +2668,7 @@ async def do_tail_serve_output(content: str, owner: Optional[str] = None) -> Dic
         state: Dict[str, Any] = {}
         try:
             async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.get(f"{_INTERNAL_BASE}/api/cookbook/state", headers=headers)
+                resp = await client.get(f"{_COOKBOOK_BASE}/api/cookbook/state", headers=headers)
                 state = resp.json() or {}
         except Exception as e:
             logger.debug(f"cookbook state lookup failed for {session_id}: {e}")
@@ -3530,7 +2706,7 @@ async def do_tail_serve_output(content: str, owner: Optional[str] = None) -> Dic
         host_label = "local"
     try:
         async with httpx.AsyncClient(timeout=20) as client:
-            resp = await client.post(f"{_INTERNAL_BASE}/api/shell/exec",
+            resp = await client.post(f"{_COOKBOOK_BASE}/api/shell/exec",
                                      json={"command": cmd}, headers=headers)
         if resp.status_code >= 400:
             return {"error": f"shell/exec returned HTTP {resp.status_code}: {resp.text[:200]}", "exit_code": 1}
@@ -3581,7 +2757,7 @@ async def do_list_downloads(content: str, owner: Optional[str] = None) -> Dict:
     import httpx
     try:
         async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get(f"{_INTERNAL_BASE}/api/cookbook/tasks/status",
+            resp = await client.get(f"{_COOKBOOK_BASE}/api/cookbook/tasks/status",
                                     headers=_internal_headers())
             data = resp.json()
         tasks = [t for t in data.get("tasks", []) if (t.get("type") or "").lower() == "download"]
@@ -3632,7 +2808,7 @@ async def do_search_hf_models(content: str, owner: Optional[str] = None) -> Dict
         params["limit"] = str(limit)
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.get(f"{_INTERNAL_BASE}/api/cookbook/hf-latest",
+            resp = await client.get(f"{_COOKBOOK_BASE}/api/cookbook/hf-latest",
                                     params=params, headers=_internal_headers())
             data = resp.json()
         models = data.get("models") if isinstance(data, dict) else data
@@ -3698,7 +2874,7 @@ async def do_adopt_served_model(content: str, owner: Optional[str] = None) -> Di
         check = f"tmux has-session -t {shlex.quote(sess)} 2>&1"
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            r = await client.post(f"{_INTERNAL_BASE}/api/shell/exec",
+            r = await client.post(f"{_COOKBOOK_BASE}/api/shell/exec",
                                   json={"command": check}, headers=headers)
             data = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
         if r.status_code >= 400 or (data.get("exit_code") not in (None, 0)):
@@ -3715,7 +2891,7 @@ async def do_adopt_served_model(content: str, owner: Optional[str] = None) -> Di
     server_up = False
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            r = await client.post(f"{_INTERNAL_BASE}/api/shell/exec",
+            r = await client.post(f"{_COOKBOOK_BASE}/api/shell/exec",
                                   json={"command": health_cmd}, headers=headers)
             body = (r.json() or {}).get("stdout", "") if r.headers.get("content-type", "").startswith("application/json") else ""
             server_up = '"data"' in body or '"object"' in body
@@ -3726,7 +2902,7 @@ async def do_adopt_served_model(content: str, owner: Optional[str] = None) -> Di
     # overwrite the whole file (that'd nuke presets).
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            r = await client.get(f"{_INTERNAL_BASE}/api/cookbook/state", headers=headers)
+            r = await client.get(f"{_COOKBOOK_BASE}/api/cookbook/state", headers=headers)
             state = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
     except Exception as e:
         return {"error": f"could not read cookbook state: {e}", "exit_code": 1}
@@ -3762,7 +2938,7 @@ async def do_adopt_served_model(content: str, owner: Optional[str] = None) -> Di
         state["tasks"] = tasks
         try:
             async with httpx.AsyncClient(timeout=10) as client:
-                await client.post(f"{_INTERNAL_BASE}/api/cookbook/state",
+                await client.post(f"{_COOKBOOK_BASE}/api/cookbook/state",
                                   json=state, headers=headers)
         except Exception as e:
             return {"error": f"could not save cookbook state: {e}", "exit_code": 1}
@@ -3839,7 +3015,7 @@ async def do_list_serve_presets(content: str, owner: Optional[str] = None) -> Di
     import httpx
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(f"{_INTERNAL_BASE}/api/cookbook/state",
+            resp = await client.get(f"{_COOKBOOK_BASE}/api/cookbook/state",
                                     headers=_internal_headers())
             state = resp.json() or {}
     except Exception as e:
@@ -3887,7 +3063,7 @@ async def do_serve_preset(content: str, owner: Optional[str] = None) -> Dict:
 
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(f"{_INTERNAL_BASE}/api/cookbook/state",
+            resp = await client.get(f"{_COOKBOOK_BASE}/api/cookbook/state",
                                     headers=_internal_headers())
             state = resp.json() or {}
     except Exception as e:
@@ -3927,30 +3103,21 @@ async def do_serve_preset(content: str, owner: Optional[str] = None) -> Dict:
     if env_cfg.get("gpus"):       payload["gpus"]       = env_cfg["gpus"]
     if env_cfg.get("hf_token"):   payload["hf_token"]   = env_cfg["hf_token"]
     if env_cfg.get("platform"):   payload["platform"]   = env_cfg["platform"]
-    if env_cfg.get("ssh_port"):
-        payload["ssh_port"] = env_cfg["ssh_port"]
+    if env_cfg.get("ssh_port"):   payload["ssh_port"]   = env_cfg["ssh_port"]
 
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(f"{_INTERNAL_BASE}/api/model/serve",
+            resp = await client.post(f"{_COOKBOOK_BASE}/api/model/serve",
                                      json=payload, headers=_internal_headers())
             data = resp.json()
         if data.get("ok"):
             sid = data.get("session_id", "?")
-            endpoint_id = data.get("endpoint_id") or ""
-            if endpoint_id:
-                endpoint_added = True
-            else:
-                endpoint_meta = await _ensure_served_endpoint(model=repo_id, cmd=cmd, host=host)
-                endpoint_added = bool(endpoint_meta.get("added"))
-                endpoint_id = endpoint_meta.get("endpoint_id", "") or endpoint_id
             registered = await _cookbook_register_task(
                 session_id=sid, model=repo_id, host=host,
                 cmd=cmd, task_type="serve",
-                endpoint_added=endpoint_added, endpoint_id=endpoint_id or "",
             )
             note = "" if registered else " (state-write failed — task may not show in UI)"
-            return {"output": f"Launched preset {chosen.get('name')!r}: {repo_id} on {host or 'local'} (session: {sid}){note}", "session_id": sid, "host": host, "endpoint_id": endpoint_id, "exit_code": 0}
+            return {"output": f"Launched preset {chosen.get('name')!r}: {repo_id} on {host or 'local'} (session: {sid}){note}", "session_id": sid, "exit_code": 0}
         return {"error": data.get("error", "Serve failed"), "exit_code": 1}
     except Exception as e:
         return {"error": str(e), "exit_code": 1}
@@ -3992,7 +3159,7 @@ async def do_list_cached_models(content: str, owner: Optional[str] = None) -> Di
             p["platform"] = args["platform"]
         try:
             async with httpx.AsyncClient(timeout=60) as client:
-                resp = await client.get(f"{_INTERNAL_BASE}/api/model/cached",
+                resp = await client.get(f"{_COOKBOOK_BASE}/api/model/cached",
                                         params=p, headers=headers)
                 data = resp.json()
             ms = data.get("models", []) if isinstance(data, dict) else (data or [])
@@ -4012,7 +3179,7 @@ async def do_list_cached_models(content: str, owner: Optional[str] = None) -> Di
         servers: list = []
         try:
             async with httpx.AsyncClient(timeout=10) as client:
-                st = await client.get(f"{_INTERNAL_BASE}/api/cookbook/state", headers=headers)
+                st = await client.get(f"{_COOKBOOK_BASE}/api/cookbook/state", headers=headers)
                 st_data = st.json() if st.headers.get("content-type", "").startswith("application/json") else {}
             servers = (st_data.get("env", {}) or {}).get("servers") or []
         except Exception as e:
@@ -4083,7 +3250,7 @@ async def do_list_cached_models(content: str, owner: Optional[str] = None) -> Di
             downloaded = []
             try:
                 async with httpx.AsyncClient(timeout=10) as client:
-                    st = await client.get(f"{_INTERNAL_BASE}/api/cookbook/state", headers=headers)
+                    st = await client.get(f"{_COOKBOOK_BASE}/api/cookbook/state", headers=headers)
                     state = st.json() if st.headers.get("content-type", "").startswith("application/json") else {}
                 for t in (state.get("tasks") or []):
                     if not isinstance(t, dict) or t.get("type") != "download":
@@ -4154,7 +3321,7 @@ async def do_edit_image(content: str, owner: Optional[str] = None) -> Dict:
         payload["scale"] = args["scale"]
     try:
         async with httpx.AsyncClient(timeout=120) as client:
-            resp = await client.post(f"{_INTERNAL_BASE}/api/gallery/{action}", json=payload)
+            resp = await client.post(f"http://localhost:7000/api/gallery/{action}", json=payload)
             data = resp.json()
         if data.get("success") or data.get("id"):
             return {"output": f"Image edited ({action}). New image ID: {data.get('id', '?')}", "exit_code": 0}
@@ -4179,7 +3346,7 @@ async def do_manage_research(content: str, owner: Optional[str] = None) -> Dict:
         args = {}
     action = (args.get("action") or "list").lower()
     rid = (args.get("id") or args.get("session_id") or args.get("research_id") or "").strip()
-    data_dir = _Path(DEEP_RESEARCH_DIR)
+    data_dir = _Path("data/deep_research")
 
     # SECURITY: the research id is interpolated straight into a filesystem
     # path (data/deep_research/<rid>.json) for read AND delete. Without this
@@ -4270,7 +3437,7 @@ async def do_trigger_research(content: str, owner: Optional[str] = None) -> Dict
         payload["search_provider"] = args["search_provider"]
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(f"{_INTERNAL_BASE}/api/research/start",
+            resp = await client.post(f"{_COOKBOOK_BASE}/api/research/start",
                                      json=payload, headers=_internal_headers(owner))
         if resp.status_code >= 400:
             return {"error": f"research/start returned HTTP {resp.status_code}: {resp.text[:200]}", "exit_code": 1}
@@ -4293,138 +3460,12 @@ async def do_trigger_research(content: str, owner: Optional[str] = None) -> Dict
 
 
 # ── Contact tools ──
-
-async def do_resolve_contact(content: str, owner: Optional[str] = None) -> Dict:
-    """Look up a contact by name. Searches: CardDAV -> email history -> memory."""
-    import httpx
-    try:
-        args = _parse_tool_args(content)
-    except ValueError:
-        return {"error": "Invalid JSON arguments", "exit_code": 1}
-    name = args.get("name", "")
-    if not name:
-        return {"error": "name is required", "exit_code": 1}
-
-    contacts = {}  # email -> {name, source}
-
-    # 1. CardDAV (Radicale) — structured contacts. Call in-process: a
-    # server-side httpx GET to /api/contacts/search carries no session
-    # cookie and would 401 under require_user.
-    try:
-        import asyncio
-        from routes import contacts_routes as cc
-        all_contacts = await asyncio.to_thread(cc._fetch_contacts)
-        q = name.lower()
-        for c in (all_contacts or []):
-            hay_name = (c.get("name") or "").lower()
-            match = q in hay_name or any(q in (e or "").lower() for e in c.get("emails", []))
-            if not match:
-                continue
-            for email in (c.get("emails") or []):
-                email = (email or "").strip().lower()
-                if email and "@" in email:
-                    contacts[email] = {"name": c.get("name") or email, "source": "contacts"}
-    except Exception:
-        pass
-
-    async with httpx.AsyncClient(timeout=30) as client:
-        # 2. Email history (sent/received)
-        try:
-            resp = await client.get(f"{_INTERNAL_BASE}/api/email/resolve-contact", params={"name": name})
-            if resp.status_code == 200:
-                for c in (resp.json().get("contacts") or []):
-                    email = (c.get("email") or "").strip().lower()
-                    if email and email not in contacts:
-                        contacts[email] = {"name": c.get("name") or email, "source": "email history"}
-        except Exception:
-            pass
-
-    if not contacts:
-        return {"output": f"No contacts found matching '{name}'.", "exit_code": 0}
-
-    lines = [f"Contacts matching '{name}':"]
-    for email, info in contacts.items():
-        lines.append(f"- {info['name']} <{email}> ({info['source']})")
-    return {"output": "\n".join(lines), "exit_code": 0}
-
-
-async def do_manage_contact(content: str, owner: Optional[str] = None) -> Dict:
-    """Add / update / delete / list CardDAV contacts. Calls the contacts
-    helpers IN-PROCESS rather than over HTTP — a server-side httpx call to
-    /api/contacts/* carries no session cookie and would be rejected by
-    require_user (401), so the tool would see zero contacts even though
-    the browser-side UI works fine."""
-    try:
-        args = _parse_tool_args(content)
-    except ValueError:
-        return {"error": "Invalid JSON arguments", "exit_code": 1}
-    action = (args.get("action") or "").strip().lower()
-    try:
-        from routes import contacts_routes as cc
-    except Exception as e:
-        return {"error": f"Contacts module unavailable: {e}", "exit_code": 1}
-    # The contacts helpers are sync (httpx blocking calls to CardDAV) — run
-    # them in a thread so we don't block the event loop.
-    import asyncio
-    try:
-        if action == "list":
-            rows = await asyncio.to_thread(cc._fetch_contacts, True)
-            if not rows:
-                return {"output": "No contacts.", "exit_code": 0}
-            lines = [f"{len(rows)} contacts:"]
-            for c in rows:
-                em = ", ".join(c.get("emails") or [])
-                lines.append(f"- {c.get('name') or '(no name)'} <{em}>  [uid={c.get('uid','')}]")
-            return {"output": "\n".join(lines), "exit_code": 0}
-
-        if action == "add":
-            email = (args.get("email") or "").strip()
-            if not email:
-                return {"error": "email is required for add", "exit_code": 1}
-            name = (args.get("name") or "").strip() or email.split("@")[0]
-            # Dedupe by email (same as the /add route).
-            existing = await asyncio.to_thread(cc._fetch_contacts)
-            for c in existing:
-                if email.lower() in [e.lower() for e in c.get("emails", [])]:
-                    return {"output": f"{email} is already a contact ({c.get('name','')}).", "exit_code": 0}
-            ok = await asyncio.to_thread(cc._create_contact, name, email)
-            return {"output": f"{'Added' if ok else 'Failed to add'} {name} <{email}>.", "exit_code": 0 if ok else 1}
-
-        if action in ("update", "edit"):
-            uid = (args.get("uid") or "").strip()
-            if not uid:
-                return {"error": "uid is required for update (use action=list to find it)", "exit_code": 1}
-            name = (args.get("name") or "").strip()
-            emails = args.get("emails")
-            if emails is None and args.get("email"):
-                emails = [args["email"]]
-            emails = [e.strip() for e in (emails or []) if e and e.strip()]
-            phones = [p.strip() for p in (args.get("phones") or []) if p and p.strip()]
-            if not name and not emails:
-                return {"error": "Provide a name or emails to update", "exit_code": 1}
-            if not name and emails:
-                name = emails[0].split("@")[0]
-            ok = await asyncio.to_thread(cc._update_contact, uid, name, emails, phones)
-            return {"output": "Contact updated." if ok else "Update failed.", "exit_code": 0 if ok else 1}
-
-        if action == "delete":
-            uid = (args.get("uid") or "").strip()
-            if not uid:
-                return {"error": "uid is required for delete (use action=list to find it)", "exit_code": 1}
-            ok = await asyncio.to_thread(cc._delete_contact, uid)
-            return {"output": "Contact deleted." if ok else "Delete failed.", "exit_code": 0 if ok else 1}
-
-        return {"error": f"Unknown action '{action}'. Use list, add, update, or delete.", "exit_code": 1}
-    except Exception as e:
-        return {"error": f"Contact operation failed: {e}", "exit_code": 1}
-
-
 # ── Vaultwarden / Bitwarden CLI tools ──
 
 def _load_vault_config() -> Dict:
     """Load Vaultwarden config from data/vault.json."""
     from pathlib import Path
-    p = Path(VAULT_FILE)
+    p = Path("data/vault.json")
     if p.exists():
         try:
             return json.loads(p.read_text(encoding="utf-8"))
@@ -4578,7 +3619,7 @@ async def do_vault_unlock(content: str, owner: Optional[str] = None) -> Dict:
 
     # Save session to vault.json
     from pathlib import Path
-    p = Path(VAULT_FILE)
+    p = Path("data/vault.json")
     cfg = {}
     if p.exists():
         try:
