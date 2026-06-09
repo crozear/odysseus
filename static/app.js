@@ -4,7 +4,6 @@
 // ============================================
 import Storage from './js/storage.js';
 import uiModule from './js/ui.js';
-import workspaceModule from './js/workspace.js';
 import fileHandlerModule from './js/fileHandler.js';
 import modelsModule from './js/models.js';
 import ragModule from './js/rag.js';
