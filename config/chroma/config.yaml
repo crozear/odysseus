@@ -1,0 +1,29 @@
+########################
+# HTTP server settings #
+########################
+open_telemetry:
+  service_name: "chroma"
+  endpoint: "http://otel-collector:4317"
+  filters:
+    - crate_name: "chroma_frontend"
+      filter_level: "trace"  
+port: 8000
+listen_address: "0.0.0.0"
+max_payload_size_bytes: 41943040
+cors_allow_origins: ["*"]
+
+####################
+# General settings #
+####################
+# Absolute path (the container has no WORKDIR, so a relative path would
+# resolve to /chroma and miss the mounted volume). Must match the chromadb
+# volume target in docker-compose.yml.
+persist_path: "/data"
+allow_reset: true # defaults to false
+sqlitedb:
+  hash_type: "md5" # or "sha256"
+  migration_mode: "apply" # or "validate"
+sysdb:
+  sqlite:
+    log_topic_namespace: "default"
+    log_tenant: "default"
