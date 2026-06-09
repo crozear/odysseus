@@ -591,10 +591,6 @@ app.include_router(setup_embedding_routes())
 from routes.model_routes import setup_model_routes
 app.include_router(setup_model_routes(model_discovery))
 
-# ChatGPT Subscription device-flow login
-from routes.chatgpt_subscription_routes import setup_chatgpt_subscription_routes
-app.include_router(setup_chatgpt_subscription_routes())
-
 
 # TTS
 from routes.tts_routes import setup_tts_routes

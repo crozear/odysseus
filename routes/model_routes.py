@@ -221,7 +221,7 @@ _PROVIDER_CURATED = {
         "gpt-image-1.5", "gpt-image-1", "dall-e-3", "tts-1", "whisper-1",
     ],
     "anthropic": [
-        "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6",
+        "claude-fable-5", "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6",
         "claude-opus-4-5", "claude-opus-4-1", "claude-opus-4",
         "claude-sonnet-4-6", "claude-sonnet-4-5", "claude-sonnet-4",
         "claude-haiku-4-5",
@@ -477,7 +477,7 @@ def _is_ollama_base(base_url: str) -> bool:
 _NON_CHAT_PREFIXES = (
     "dall-e", "tts-", "whisper", "text-embedding", "embedding",
     "davinci", "babbage", "moderation", "omni-moderation",
-    "sora", "gpt-image", "chatgpt-image",
+    "sora", "gpt-image",
 )
 _NON_CHAT_CONTAINS = (
     "-realtime", "-transcribe", "-tts", "-codex",
@@ -550,7 +550,7 @@ def _safe_build_headers(api_key: Optional[str], base_url: str) -> dict:
 
 
 def _is_discovery_only_provider(provider: str) -> bool:
-    return provider == "chatgpt-subscription"
+    return False
 
 
 def _resolve_probe_key(ep) -> Optional[str]:
@@ -683,11 +683,6 @@ def _probe_endpoint(base_url: str, api_key: str = None, timeout: int = 5) -> Lis
     from src.endpoint_resolver import resolve_url
     base = resolve_url(_normalize_base(base_url))
     provider = _safe_detect_provider(base)
-    if provider == "chatgpt-subscription":
-        from src.chatgpt_subscription import fetch_available_models
-        if api_key:
-            return fetch_available_models(api_key, timeout=timeout)
-        return []
     if provider == "anthropic":
         # Try Anthropic's /v1/models endpoint first
         url = _safe_build_models_url(base)

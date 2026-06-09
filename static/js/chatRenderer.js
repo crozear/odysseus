@@ -426,6 +426,7 @@ const TOOL_NARRATION_RE = /(?:The (?:result|output) shows?:?\s*)?-?\s*(?:stdout|
 const MODEL_INFO = {
   // --- Anthropic --- (most-specific key first; getModelInfo returns the first
   // substring match, so 'claude-opus-4' must stay below 'claude-opus-4-8' etc.)
+  'claude-fable-5':      { input: 10.00,  output: 50.00,  ctx: 1000000, maxOut: 128000 },
   'claude-opus-4-8':      { input: 5.00,  output: 25.00, ctx: 1000000, maxOut: 128000 },
   'claude-opus-4-7':      { input: 5.00,  output: 25.00, ctx: 1000000, maxOut: 128000 },
   'claude-opus-4-6':      { input: 5.00,  output: 25.00, ctx: 1000000, maxOut: 128000 },
@@ -600,6 +601,7 @@ export function getModelInfo(modelName) {
 //              or 'both' (adaptive toggle available, else extended)
 //   temp/topP/topK : whether the sampling param is accepted at all
 const ANTHROPIC_CAPS = {
+  'claude-fable-5':   { thinking: 'adaptive', effort: ['auto','low','medium','high','xhigh','max'], temp: false, topP: false, topK: false, maxOut: 128000 },
   'claude-opus-4-8':   { thinking: 'adaptive', effort: ['auto','low','medium','high','xhigh','max'], temp: false, topP: false, topK: false, maxOut: 128000 },
   'claude-opus-4-7':   { thinking: 'adaptive', effort: ['auto','low','medium','high','xhigh','max'], temp: false, topP: false, topK: false, maxOut: 128000 },
   'claude-opus-4-6':   { thinking: 'both',     effort: ['auto','low','medium','high','max'],          temp: true,  topP: true,  topK: true,  maxOut: 128000 },
@@ -776,25 +778,13 @@ export function isLocalEndpoint(url) {
   return false;
 }
 
-export function isSubscriptionEndpoint(url) {
-  if (!url) return false;
-  try {
-    const parsed = new URL(url);
-    const path = parsed.pathname.replace(/\/+$/, '');
-    return parsed.hostname === 'chatgpt.com'
-      && (path === '/backend-api/codex' || path.startsWith('/backend-api/codex/'));
-  } catch (_e) {
-    return false;
-  }
-}
-
 function _currentEndpointUrl() {
   return (window.sessionModule && window.sessionModule.getCurrentEndpointUrl)
     ? window.sessionModule.getCurrentEndpointUrl() : null;
 }
 
 export function isCostTrackedEndpoint(url) {
-  return !isLocalEndpoint(url) && !isSubscriptionEndpoint(url);
+  return !isLocalEndpoint(url);
 }
 
 /** Cost for the current turn, returning null for non-billable endpoints. */
@@ -2466,7 +2456,6 @@ const chatRenderer = {
   applyModelColor,
   getModelCost,
   isCostTrackedEndpoint,
-  isSubscriptionEndpoint,
   getImageCost,
   getSessionCost,
   resetSessionCost,

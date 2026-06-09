@@ -214,8 +214,6 @@ def try_fallback_endpoint(sess, session_id: str) -> dict | None:
         normalize_base,
         resolve_endpoint_runtime,
     )
-    from src.chatgpt_subscription import is_chatgpt_subscription_base
-
     current_url = sess.endpoint_url or ""
     owner = getattr(sess, "owner", None)
     db = SessionLocal()
@@ -261,7 +259,7 @@ def try_fallback_endpoint(sess, session_id: str) -> dict | None:
             new_model = models[0]
             chat_url = build_chat_url(base)
             new_headers = build_headers(api_key, base)
-            persisted_headers = {} if is_chatgpt_subscription_base(base) else new_headers
+            persisted_headers = new_headers
 
             sess.model = new_model
             sess.endpoint_url = chat_url
@@ -379,13 +377,7 @@ def _has_auth_keys(headers) -> bool:
 
 def resolve_session_auth(sess, session_id: str, owner: Optional[str] = None):
     """Ensure session has auth headers — resolve from endpoint DB if missing."""
-    try:
-        from src.chatgpt_subscription import is_chatgpt_subscription_base
-        is_chatgpt_subscription = is_chatgpt_subscription_base(getattr(sess, "endpoint_url", "") or "")
-    except Exception:
-        is_chatgpt_subscription = False
-    has_auth = _has_auth_keys(sess.headers)
-    if has_auth and not is_chatgpt_subscription:
+    if _has_auth_keys(sess.headers):
         return
 
     try:
@@ -397,9 +389,6 @@ def resolve_session_auth(sess, session_id: str, owner: Optional[str] = None):
                 return
             q = db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled == True)
             if owner:
-                # Missing headers usually means "recover from the saved endpoint".
-                # Scope that lookup to the session owner, otherwise two users
-                # with similar endpoint URLs can borrow each other's API key.
                 from src.auth_helpers import owner_filter
                 q = owner_filter(q, ModelEndpoint, owner)
             for ep in q.all():
@@ -411,24 +400,8 @@ def resolve_session_auth(sess, session_id: str, owner: Optional[str] = None):
                     logger.warning("Failed to resolve provider auth for session %s: %s", session_id, e)
                     return
                 if not api_key:
-                    # No usable key (e.g. ChatGPT Subscription needs re-auth).
                     return
                 sess.headers = build_headers(api_key, base)
-                if is_chatgpt_subscription:
-                    # The bearer is short-lived and re-resolved per request, so it
-                    # stays request-local and is never written to the plaintext
-                    # sessions.headers column. Proactively strip any bearer an
-                    # older code path may have persisted so it does not linger.
-                    stale_q = db.query(DBSession).filter(DBSession.id == session_id)
-                    if owner:
-                        stale_q = stale_q.filter(DBSession.owner == owner)
-                    stored = stale_q.first()
-                    if stored is not None and _has_auth_keys(stored.headers):
-                        stale_q.update({"headers": {}})
-                        db.commit()
-                        logger.info(f"Cleared persisted ChatGPT Subscription bearer from session {session_id}")
-                    logger.debug(f"Resolved request-local ChatGPT Subscription auth for session {session_id}")
-                    return
                 update_q = db.query(DBSession).filter(DBSession.id == session_id)
                 if owner:
                     update_q = update_q.filter(DBSession.owner == owner)

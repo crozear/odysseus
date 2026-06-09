@@ -65,35 +65,6 @@ def test_copilot_success_uses_complete_verification_uri():
     assert out["calls"] == ["/api/copilot/device/start", "/api/copilot/device/poll", "/api/copilot/device/poll"]
 
 
-def test_chatgpt_success_uses_plain_verification_uri():
-    js = f"""
-      import {{ runProviderDeviceFlow }} from '{_HELPER.as_posix()}';
-      const opened = [];
-      const response = (ok, status, payload) => ({{ ok, status, async json() {{ return payload; }} }});
-      const fetchImpl = async (url) => {{
-        if (url.endsWith('/device/start')) {{
-          return response(true, 200, {{
-            poll_id: 'poll-1',
-            user_code: 'OA-CODE',
-            verification_uri: 'https://auth.openai.com/codex/device',
-            interval: 2,
-            expires_in: 30,
-          }});
-        }}
-        return response(true, 200, {{ status: 'authorized', endpoint: {{ id: 'chatgpt', models: ['gpt-5.5'] }} }});
-      }};
-      const result = await runProviderDeviceFlow('chatgpt-subscription', {{
-        fetchImpl,
-        openWindow: (url) => opened.push(url),
-        sleep: async () => {{}},
-        now: () => 0,
-      }});
-      console.log(JSON.stringify({{ result, opened }}));
-    """
-    out = _run_node(js)
-    assert out["result"]["status"] == "authorized"
-    assert out["opened"] == ["https://auth.openai.com/codex/device"]
-
 
 def test_start_errors_surface_backend_detail():
     js = f"""
@@ -118,7 +89,7 @@ def test_thrown_fetch_errors_are_preserved():
     js = f"""
       import {{ runProviderDeviceFlow }} from '{_HELPER.as_posix()}';
       try {{
-        await runProviderDeviceFlow('chatgpt-subscription', {{
+        await runProviderDeviceFlow('copilot', {{
           fetchImpl: async () => {{ throw new Error('network offline'); }},
           openWindow: () => {{}},
           sleep: async () => {{}},

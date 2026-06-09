@@ -9,14 +9,6 @@ export const PROVIDER_DEVICE_FLOWS = {
       return start?.verification_uri_complete || start?.verification_uri || '';
     },
   },
-  'chatgpt-subscription': {
-    label: 'ChatGPT Subscription',
-    startUrl: '/api/chatgpt-subscription/device/start',
-    pollUrl: '/api/chatgpt-subscription/device/poll',
-    authUrl(start) {
-      return start?.verification_uri || '';
-    },
-  },
 };
 
 function _formData() {

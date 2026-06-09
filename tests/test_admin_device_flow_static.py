@@ -14,9 +14,8 @@ def _between(src: str, start: str, end: str) -> str:
     return src[start_idx:end_idx]
 
 
-def test_copilot_and_chatgpt_subscription_are_dropdown_device_auth_options():
+def test_copilot_is_dropdown_device_auth_option():
     assert 'value="copilot" data-logo="github" data-auth-flow="copilot">GitHub Copilot' in _INDEX
-    assert 'value="chatgpt-subscription" data-logo="openai" data-auth-flow="chatgpt-subscription">ChatGPT Subscription' in _INDEX
     assert 'id="adm-deviceAuthStatus"' in _INDEX
 
 
@@ -54,9 +53,6 @@ def test_loud_oauth_copy_and_removed_button_hooks_do_not_return():
     forbidden = [
         "Click Add to start",
         "uses account sign-in",
-        "Uses ChatGPT/Codex OAuth, not an OpenAI API key.",
-        "adm-chatgptStatus",
-        "adm-chatgptConnectBtn",
         "adm-copilotConnectBtn",
         "adm-copilotStatus",
     ]

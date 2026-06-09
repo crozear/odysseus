@@ -74,18 +74,22 @@ def resolve_endpoint_runtime(ep, owner: Optional[str] = None) -> Tuple[str, Opti
     """Resolve a ModelEndpoint row to its runtime base URL and bearer/API key.
 
     Static-key providers use ``ModelEndpoint.api_key``. Session-backed providers
-    store refreshable credentials in ProviderAuthSession and must resolve a
-    current access token at call time.
+    store refreshable credentials in ProviderAuthSession and resolve a current
+    access token at call time.
     """
     base = normalize_base(getattr(ep, "base_url", "") or "")
     api_key = getattr(ep, "api_key", None)
     auth_id = getattr(ep, "provider_auth_id", None)
     if auth_id:
-        from src.chatgpt_subscription import resolve_runtime_credentials
-
-        creds = resolve_runtime_credentials(auth_id, owner=owner)
-        base = normalize_base(creds.get("base_url") or base)
-        api_key = creds.get("api_key")
+        from core.database import SessionLocal, ProviderAuthSession
+        db = SessionLocal()
+        try:
+            row = db.query(ProviderAuthSession).filter(ProviderAuthSession.id == auth_id).first()
+            if row:
+                base = normalize_base(row.base_url or base)
+                api_key = row.access_token
+        finally:
+            db.close()
     return base, api_key
 
 
@@ -177,8 +181,6 @@ def build_chat_url(base: str) -> str:
         return _anthropic_api_root(base) + "/v1/messages"
     if provider == "ollama":
         return _ollama_api_root(base) + "/chat"
-    if provider == "chatgpt-subscription":
-        return base.rstrip("/") + "/responses"
     return base + "/chat/completions"
 
 
@@ -190,8 +192,6 @@ def build_models_url(base: str) -> Optional[str]:
         return _anthropic_api_root(base) + "/v1/models"
     if provider == "ollama":
         return _ollama_api_root(base) + "/tags"
-    if provider == "chatgpt-subscription":
-        return None
     return base + "/models"
 
 
@@ -204,9 +204,6 @@ def build_headers(api_key: Optional[str], base: str) -> Dict[str, str]:
             headers["x-api-key"] = api_key
         headers["anthropic-version"] = "2023-06-01"
         return headers
-    if provider == "chatgpt-subscription":
-        from src.chatgpt_subscription import chatgpt_headers
-        return chatgpt_headers(api_key)
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
     if provider == "openrouter":
